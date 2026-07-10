@@ -15,6 +15,7 @@ def _args(**kw):
 
 @pytest.fixture()
 def capture_up(monkeypatch):
+    pytest.importorskip("fastapi")  # `po up` needs the web extra
     captured = {}
 
     def fake_create_app(transcripts=None, *, host_id="local", sources=None, hook_token=None):

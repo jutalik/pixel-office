@@ -17,6 +17,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,web]"   # web extra so ws/server tests run (not skip)
       - run: pytest -q
       - run: po doctor
