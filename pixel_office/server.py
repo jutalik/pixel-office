@@ -148,7 +148,8 @@ class OfficeHub:
 
 def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "local",
                sources: Optional[List] = None,
-               hook_token: Optional[str] = None) -> FastAPI:
+               hook_token: Optional[str] = None,
+               company=None) -> FastAPI:
     src = list(sources) if sources else []
     for p in (transcripts or []):
         src.append(TranscriptTailer(p, host_id=host_id))
@@ -188,6 +189,15 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
     @app.get("/api/office")
     async def office_snapshot():
         return JSONResponse({"rows": hub.current_view()})
+
+    @app.get("/api/company")
+    async def company_snapshot():
+        # honest: 204 (no body) when no Company Layer is running — the UI keeps
+        # its "Requires Company Layer" gates. Real data lights them up otherwise.
+        if company is None:
+            return Response(status_code=204)
+        return JSONResponse({"summary": company.summary(), "okrs": company.okr_view(),
+                             "ceo_cards": company.ceo_cards()})
 
     @app.post("/hook/{cli}")
     async def hook_receiver(cli: str, request: Request):

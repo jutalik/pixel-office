@@ -69,6 +69,13 @@
   .needs .why { font-size:10px; color:var(--dim); }
   .needs .none { color:var(--dim); border:none; cursor:default; }
   .locked { opacity:.7; }
+  .okr { margin:6px 0; font-size:11px; } .okr .bar { height:6px; background:#313244; border-radius:3px; overflow:hidden; margin-top:3px; }
+  .okr .bar > i { display:block; height:100%; background:var(--working); }
+  .card { border:1px solid #f9e2af55; border-radius:5px; padding:8px; margin:6px 0; font-size:11px; }
+  .card.oneway { border-color:#f38ba855; } .card .rec { color:var(--dim); margin-top:3px; }
+  .card details { margin-top:4px; } .card summary { cursor:pointer; color:var(--dim); font-size:10px; }
+  .card .btns { display:flex; gap:6px; margin-top:6px; }
+  .mode-chip { font-size:10px; color:var(--dim); margin-bottom:8px; }
   /* detail / customize / chat sheet */
   #sheet { position:fixed; right:0; top:0; bottom:0; width:min(340px,90vw); background:var(--panel);
            border-left:2px solid var(--line); box-shadow:-4px 0 20px #0008; transform:translateX(100%);
@@ -110,12 +117,14 @@
     <h2>Needs you now</h2>
     <ul class="needs" id="needs"></ul>
     <h2>CEO desk</h2>
-    <div class="gate locked" id="approvalsGate">✅ Approvals — 0 pending · <b>Requires Company Layer</b></div>
-    <div class="gate locked">🎯 OKRs / goals · <b>Requires Company Layer</b></div>
-    <div class="gate locked">🧑‍🤝‍🧑 Team &amp; HR · <b>Requires Company Layer</b></div>
-    <div class="gate locked">💰 Budget &amp; spend · <b>Requires Company Layer</b></div>
-    <p class="readonly">Live company data (approvals, goals, meetings) lights up when the Company
-      Layer is running. Everything above the desk is real telemetry from your CLIs.</p>
+    <div id="ceoDesk">
+      <div class="gate locked">✅ Approvals · <b>Requires Company Layer</b></div>
+      <div class="gate locked">🎯 OKRs / goals · <b>Requires Company Layer</b></div>
+      <div class="gate locked">🧑‍🤝‍🧑 Team &amp; HR · <b>Requires Company Layer</b></div>
+      <div class="gate locked">💰 Budget &amp; spend · <b>Requires Company Layer</b></div>
+    </div>
+    <p class="readonly">Live company data (approvals, goals) lights up when the Company Layer is
+      running. Everything above the desk is real telemetry from your CLIs.</p>
   </aside>
 </main>
 <aside id="sheet" hidden>
@@ -292,6 +301,49 @@ document.getElementById("ceoBtn").addEventListener("click", e=>{
 document.getElementById("editBtn").addEventListener("click", e=>{
   editMode=!editMode; e.currentTarget.setAttribute("aria-pressed", editMode?"true":"false"); render(); });
 document.addEventListener("visibilitychange", render);
+
+// ---- CEO desk: real company data when the Company Layer is running -----------
+function esc(s){ const d=document.createElement("div"); d.textContent=s; return d; }
+async function refreshCompany(){
+  const desk=document.getElementById("ceoDesk");
+  let data=null;
+  try { const r=await fetch("/api/company"); if(r.status===200) data=await r.json(); } catch(e){}
+  if (!data){  // no company → honest gated view (default markup stays)
+    if (!desk.querySelector(".gate")) desk.innerHTML =
+      '<div class="gate locked">✅ Approvals · <b>Requires Company Layer</b></div>'+
+      '<div class="gate locked">🎯 OKRs / goals · <b>Requires Company Layer</b></div>'+
+      '<div class="gate locked">🧑‍🤝‍🧑 Team &amp; HR · <b>Requires Company Layer</b></div>'+
+      '<div class="gate locked">💰 Budget &amp; spend · <b>Requires Company Layer</b></div>';
+    return;
+  }
+  desk.textContent="";
+  const chip=document.createElement("div"); chip.className="mode-chip";
+  chip.textContent = `${data.summary.name} · mode: ${data.summary.mode.drive} · CEO sees: ${data.summary.mode.ceo_updates}`;
+  desk.append(chip);
+  // approvals (real CEO cards)
+  const ah=document.createElement("h2"); ah.textContent=`✅ Needs your sign-off (${data.ceo_cards.length})`; ah.style.margin="6px 0"; desk.append(ah);
+  if (!data.ceo_cards.length){ const d=document.createElement("div"); d.className="readonly"; d.textContent="nothing pending — the team is deciding within its authority."; desk.append(d); }
+  for (const c of data.ceo_cards){
+    const card=document.createElement("div"); card.className="card"+(c.one_way_door?" oneway":"");
+    const t=document.createElement("div"); t.append(document.createTextNode((c.one_way_door?"🚪 ":"↩ ")), esc(c.decision));
+    const rec=document.createElement("div"); rec.className="rec"; rec.append(document.createTextNode("recommend: "), esc(c.recommendation||"—"));
+    const det=document.createElement("details"); const sm=document.createElement("summary"); sm.textContent="why / who / how (5W1H)"; det.append(sm);
+    const dl=document.createElement("dl");
+    for (const [k,v] of [["who",c.who],["why",c.why],["how",c.how],["risk",c.risk],["reversibility",c.reversibility]]){
+      const dt=document.createElement("dt"); dt.textContent=k; const dd=document.createElement("dd"); dd.textContent=v; dl.append(dt,dd); }
+    det.append(dl); card.append(t,rec,det); desk.append(card);
+  }
+  // OKRs (real progress)
+  const oh=document.createElement("h2"); oh.textContent=`🎯 Goal: ${Math.round(data.summary.okr_progress*100)}%`; oh.style.margin="10px 0 4px"; desk.append(oh);
+  const obj=document.createElement("div"); obj.className="readonly"; obj.style.marginTop="0"; obj.textContent=data.summary.objective; desk.append(obj);
+  for (const k of data.okrs){
+    const o=document.createElement("div"); o.className="okr";
+    const lab=document.createElement("div"); lab.append(esc(`${k.text} (${k.cadence})`), document.createTextNode(` ${Math.round(k.progress*100)}%`));
+    const bar=document.createElement("div"); bar.className="bar"; const fill=document.createElement("i"); fill.style.width=(k.progress*100)+"%"; bar.append(fill);
+    o.append(lab,bar); desk.append(o);
+  }
+}
+setInterval(refreshCompany, 4000); refreshCompany();
 
 // ---- live wiring: snapshot + deltas, offline last-snapshot -------------------
 for (const r of loadJSON("po:last",[])){ rows.set(charId(r), r); }
