@@ -49,8 +49,9 @@ _CLIS = {
         "extra_bin_dirs": [Path.home() / ".grok" / "bin"],
         "env_home": "GROK_HOME",
         "home": Path.home() / ".grok",
-        # per-session directories: sessions/<encoded-cwd>/<uuid>/chat_history.jsonl
-        "session_glob": "sessions/*/*/chat_history.jsonl",
+        # per-session dirs: sessions/<encoded-cwd>/<uuid>/events.jsonl is the
+        # structured telemetry stream (chat_history.jsonl has no timestamps).
+        "session_glob": "sessions/*/*/events.jsonl",
         "hooks": True, "hook_kind": "config",
     },
     "gemini": {

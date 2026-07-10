@@ -55,9 +55,23 @@ _CODEX = {
     "TaskComplete": "done",
 }
 
+# Grok events.jsonl vocabulary (see grok_events.py; verified 2026-07-10).
+# Grok records permission prompts, so its tailer reaches `waiting` too.
+_GROK = {
+    "TurnStarted": "working",
+    "LoopStarted": "working",
+    "FirstToken": "working",
+    "ToolStarted": "working",
+    "ToolCompleted": "working",
+    "PermissionRequested": "waiting",
+    "PermissionResolved": "working",
+    "TurnEnded": "done",
+}
+
 _TABLES = {
     "claude": _CLAUDE,
     "codex": _CODEX,
+    "grok": _GROK,
 }
 
 # Which activity states each CLI's TAILER can actually produce (hooks produce
@@ -65,6 +79,7 @@ _TABLES = {
 TAILER_DERIVABLE = {
     "claude": ("working", "done"),
     "codex": ("working", "done"),
+    "grok": ("working", "waiting", "done"),  # grok logs permission prompts
 }
 
 

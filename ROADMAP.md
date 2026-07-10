@@ -71,6 +71,14 @@ states — are now reachable.
 codex, grok, gemini behind one contract: `install → detect → observe → uninstall`. Hook-capable →
 hooks; hook-less → tailer. **Reuses the contract + conformance tests.**
 **Exit:** 3+ CLIs appear as avatars (mixed hook/tailer); a missing CLI never blocks bootstrap.
+✅ **codex + grok shipped 2026-07-10** (110 tests green). One office now shows claude + codex +
+grok avatars together (live-verified: 70 real agents; controlled screenshot of all three with
+mixed working/done/**waiting**). Each adapter is a ~30-line `parse_line` reusing the frozen reducer.
+Findings that shaped it: grok's real signal is `events.jsonl` (structured, timestamped), NOT
+`chat_history.jsonl` (no timestamps) — and because grok logs `permission_requested`, it is the ONE
+CLI whose tailer reaches `waiting`. Per-CLI session-id fallback added (grok's file is always
+`events.jsonl`, so identity is the parent-dir uuid). Gemini adapter + the hermes hooks-plugin
+installer remain to close Phase 3.
 
 ## Phase 4 — Game overlay (DOM/CSS, disable-able)
 Rooms, movement, speech bubbles; honesty-locked; LOD / FPS caps / pause-on-hidden / reduced-motion;

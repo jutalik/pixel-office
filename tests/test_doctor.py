@@ -30,7 +30,8 @@ def test_normalize_supported_only_for_implemented_tables():
     r = doctor.run()
     assert r["clis"]["claude"]["normalize_supported"] is True
     assert r["clis"]["codex"]["normalize_supported"] is True   # Phase 3 (2026-07-10)
-    assert r["clis"]["grok"]["normalize_supported"] is False   # next adapter
+    assert r["clis"]["grok"]["normalize_supported"] is True    # Phase 3 (2026-07-10)
+    assert r["clis"]["hermes"]["normalize_supported"] is False  # next adapter
 
 
 def test_env_home_override_and_transcript_glob(tmp_path, monkeypatch):
