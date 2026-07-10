@@ -288,51 +288,64 @@ function bubbleText(r){ return r.activity==="waiting"?"needs you": r.activity===
 let editMode = false;
 function roomLabel(id, fallback){ return (officeCfg.rooms[id] && officeCfg.rooms[id].label) || fallback; }
 
-function render(){
-  if (document.hidden) return;
-  const all = [...rows.values()];
-  currentLooks = resolveLooks(all.map(charId));   // distinct look per visible avatar
-  const byRoom = new Map();
-  // company avatars split into department rooms (Engineering / Content / …) from
-  // the roster; real CLI sessions group by their CLI. Honest org structure.
-  // `po run` hosts ONE company, so every cli==="company" row is this company and
-  // agent_id is unique here; an id not in the roster falls back to the generic
-  // "company" room (never a wrong department).
-  for (const r of all){ const k = (r.cli==="company" && roster[r.agent_id]) ? roster[r.agent_id] : r.cli;
-    (byRoom.get(k)||byRoom.set(k,[]).get(k)).push(r); }
-  floor.textContent = "";
-  if (!all.length){ const e=document.createElement("div"); e.id="empty";
-    e.textContent="no agents yet — run one of your AI CLIs and watch them appear."; floor.append(e); }
+// Persistent DOM nodes: avatars keep the SAME element across renders so their
+// left/top CSS transition actually animates (they walk to their desk slot) and
+// mobile/low-end devices patch instead of rebuilding the whole floor each frame.
+const roomNodes = new Map();     // roomKey -> {room, stage, nameSpan, count}
+const avatarNodes = new Map();   // charId -> {av, face, bubble, nm, lookKey}
+let mrNode = null, mrKey = null;  // meeting room node + a signature of its content
 
-  for (const [cli, mates] of [...byRoom].sort()){
-    mates.sort((a,b)=>charId(a)<charId(b)?-1:1);
-    const room = document.createElement("div"); room.className="room";
-    const label = document.createElement("div"); label.className="rlabel";
-    const nameSpan = document.createElement("span");
-    nameSpan.textContent = roomLabel(cli, cli);
-    if (editMode){ nameSpan.contentEditable = "true";
-      nameSpan.addEventListener("blur", ()=>{ officeCfg.rooms[cli]={label:nameSpan.textContent.trim()||cli};
-        saveJSON("po:office", officeCfg); }); }
-    const busy = mates.filter(a=>a.activity==="working"||a.activity==="waiting").length;
-    const count = document.createElement("span"); count.textContent = `${busy}/${mates.length} active`;
-    label.append(nameSpan, count); room.append(label);
-    const stage = document.createElement("div"); stage.className="stage"; room.append(stage);
-    mates.forEach((r,i)=> stage.append(makeAvatar(r,i,mates.length)));
-    floor.append(room);
-  }
-  // meeting room: shows the concluded async meeting (attendees + decision) when
-  // there is one — honest workflow result, not a fake live conversation.
-  const mr = document.createElement("div"); mr.className="room meeting";
-  const ml = document.createElement("div"); ml.className="rlabel";
-  const ms=document.createElement("span"); ms.append(lucide("messages-square"), document.createTextNode(" Meeting room")); ml.append(ms); mr.append(ml);
-  if (lastMeeting && lastMeeting.attendees && lastMeeting.attendees.length){
+function slotPos(i, n){ const cols=Math.min(n,4)||1; const cw=100/cols;
+  return { left:(cw*(i%cols)+cw/2-6)+"%", top:(Math.floor(i/cols)*46)+"px" }; }
+
+function makeAvatarNode(id){
+  const av=document.createElement("div"); av.tabIndex=0; av.setAttribute("role","button"); av.dataset.cid=id;
+  const bubble=document.createElement("div"); bubble.className="bubble";
+  const face=document.createElement("div"); face.className="face";
+  const nm=document.createElement("div"); nm.className="nm";
+  const ring=document.createElement("div"); ring.className="ring";
+  av.append(bubble,face,nm,ring);
+  const open=()=>{ const r=rows.get(av.dataset.cid); if(r) openSheet(r); };
+  av.addEventListener("click", open);
+  av.addEventListener("keydown", e=>{ if(e.key==="Enter") open(); });
+  return {av,face,bubble,nm,lookKey:null};
+}
+function updateAvatar(rec, r, i, n){
+  const id=charId(r); const prof=profileOf(id,r);
+  const say=(r.activity==="waiting"||r.activity==="blocked")?" say":"";
+  rec.av.className=`avatar ${r.activity} ${r.liveness}${say}`;
+  rec.bubble.textContent=bubbleText(r);
+  rec.nm.textContent=prof.displayName;
+  const look=lookOf(id), lk=featKey(look);
+  if(rec.lookKey!==lk){ rec.face.textContent=""; rec.face.append(pixelCharSVG(look)); rec.lookKey=lk; }
+  const p=slotPos(i,n); rec.av.style.left=p.left; rec.av.style.top=p.top;   // → CSS glide
+}
+function makeRoom(key){
+  const room=document.createElement("div"); room.className="room";
+  const label=document.createElement("div"); label.className="rlabel";
+  const nameSpan=document.createElement("span");
+  const count=document.createElement("span");
+  label.append(nameSpan,count); room.append(label);
+  const stage=document.createElement("div"); stage.className="stage"; room.append(stage);
+  // attach the rename handler ONCE (nameSpan persists); it no-ops unless editing
+  nameSpan.addEventListener("blur", ()=>{ if(!editMode) return;
+    officeCfg.rooms[key]={label:nameSpan.textContent.trim()||key}; saveJSON("po:office", officeCfg); });
+  return {room, stage, nameSpan, count};
+}
+function meetingRoom(all){
+  if(!mrNode){ mrNode=document.createElement("div"); mrNode.className="room meeting"; }
+  const key=JSON.stringify(lastMeeting||null);
+  if(key===mrKey) return mrNode;                 // unchanged → don't churn its DOM
+  mrKey=key; mrNode.textContent="";
+  const ml=document.createElement("div"); ml.className="rlabel";
+  const ms=document.createElement("span"); ms.append(lucide("messages-square"), document.createTextNode(" Meeting room"));
+  ml.append(ms); mrNode.append(ml);
+  if(lastMeeting && lastMeeting.attendees && lastMeeting.attendees.length){
     const stage=document.createElement("div"); stage.className="stage";
     lastMeeting.attendees.slice(0,6).forEach((aid,i)=>{
       const av=document.createElement("div"); av.className="avatar done say";
       const b=document.createElement("div"); b.className="bubble";
       b.textContent=String((lastMeeting.decisions&&lastMeeting.decisions[0])||"decided").slice(0,40);
-      // match the attendee to their live desk avatar so they look identical (and
-      // are covered by dedup); fall back to a per-id look for historical attendees
       const liveRow=all.find(x=>x.cli==="company" && x.agent_id===aid);
       const f=document.createElement("div"); f.className="face";
       f.append(pixelCharSVG(liveRow ? lookOf(charId(liveRow)) : lookOf(aid)));
@@ -340,39 +353,57 @@ function render(){
       av.style.left=(18*(i%4)+10)+"%"; av.style.top=(Math.floor(i/4)*46)+"px"; av.append(b,f,nm);
       stage.append(av);
     });
-    mr.append(stage);
+    mrNode.append(stage);
     const cap=document.createElement("div"); cap.className="gate";
     cap.textContent="async meeting · concluded — "+((lastMeeting.decisions||[]).join("; ")||"no decision");
-    mr.append(cap);
     const note=document.createElement("div"); note.className="readonly"; note.style.margin="4px 0 0";
-    note.textContent="animation reflects workflow stages, not a live conversation."; mr.append(note);
+    note.textContent="animation reflects workflow stages, not a live conversation.";
+    mrNode.append(cap, note);
   } else {
     const g=document.createElement("div"); g.className="gate";
-    g.textContent="no meetings yet — a concluded meeting appears here when the company holds one"; mr.append(g);
+    g.textContent="no meetings yet — a concluded meeting appears here when the company holds one"; mrNode.append(g);
   }
-  floor.append(mr);
-  renderCEO(all);
+  return mrNode;
 }
 
-function makeAvatar(r, i, n){
-  const id = charId(r); const prof = profileOf(id, r);
-  const av = document.createElement("div");
-  const say = (r.activity==="waiting"||r.activity==="blocked") ? " say" : "";
-  av.className = `avatar ${r.activity} ${r.liveness}${say}`;
-  av.tabIndex = 0; av.setAttribute("role","button");
-  // desk slot layout → a little "walking" as counts change (transform transition)
-  const cols = Math.min(n, 4); const cw = 100/Math.max(cols,1);
-  av.style.left = (cw*(i%cols) + cw/2 - 6) + "%";
-  av.style.top  = (Math.floor(i/cols)*46) + "px";
-  const bubble=document.createElement("div"); bubble.className="bubble"; bubble.textContent=bubbleText(r);
-  // face = a unique pixel character (identity); ring = activity status color
-  const face=document.createElement("div"); face.className="face"; face.append(pixelCharSVG(lookOf(id)));
-  const nm=document.createElement("div"); nm.className="nm"; nm.textContent = prof.displayName;
-  const ring=document.createElement("div"); ring.className="ring";
-  av.append(bubble,face,nm,ring);
-  av.addEventListener("click", ()=>openSheet(r));
-  av.addEventListener("keydown", e=>{ if(e.key==="Enter") openSheet(r); });
-  return av;
+let emptyNode=document.getElementById("empty");   // adopt the initial markup node
+function render(){
+  if (document.hidden) return;
+  const all = [...rows.values()];
+  currentLooks = resolveLooks(all.map(charId));   // distinct look per visible avatar
+  const byRoom = new Map();
+  // company avatars → department rooms (from the roster); real CLI sessions → their
+  // CLI room. `po run` hosts ONE company so agent_id is unique; an id not in the
+  // roster falls back to the generic "company" room (never a wrong department).
+  for (const r of all){ const k = (r.cli==="company" && roster[r.agent_id]) ? roster[r.agent_id] : r.cli;
+    (byRoom.get(k)||byRoom.set(k,[]).get(k)).push(r); }
+
+  const seenRooms=new Set(), seenAvatars=new Set();
+  for (const key of [...byRoom.keys()].sort()){
+    let rn=roomNodes.get(key); if(!rn){ rn=makeRoom(key); roomNodes.set(key,rn); }
+    seenRooms.add(key);
+    rn.nameSpan.textContent = roomLabel(key, key);
+    rn.nameSpan.contentEditable = editMode ? "true" : "false";   // listener attached once in makeRoom
+    const mates=byRoom.get(key).sort((a,b)=>charId(a)<charId(b)?-1:1);
+    const busy=mates.filter(a=>a.activity==="working"||a.activity==="waiting").length;
+    rn.count.textContent=`${busy}/${mates.length} active`;
+    mates.forEach((r,i)=>{ const id=charId(r); let rec=avatarNodes.get(id);
+      if(!rec){ rec=makeAvatarNode(id); avatarNodes.set(id,rec); }
+      updateAvatar(rec,r,i,mates.length); seenAvatars.add(id);
+      if(rec.av.parentNode!==rn.stage) rn.stage.append(rec.av);   // (re)home; glides if moved
+    });
+    floor.append(rn.room);                                        // keep floor order = sorted keys
+  }
+  floor.append(meetingRoom(all));                                 // meeting room always last
+  // reap rooms + avatars that are no longer present
+  for (const [k,rn] of roomNodes){ if(!seenRooms.has(k)){ rn.room.remove(); roomNodes.delete(k); } }
+  for (const [id,rec] of avatarNodes){ if(!seenAvatars.has(id)){ rec.av.remove(); avatarNodes.delete(id); } }
+  // empty state
+  if(!all.length){ if(!emptyNode){ emptyNode=document.createElement("div"); emptyNode.id="empty";
+      emptyNode.textContent="no agents yet — run one of your AI CLIs and watch them appear."; }
+    if(emptyNode.parentNode!==floor) floor.insertBefore(emptyNode, floor.firstChild);
+  } else if(emptyNode && emptyNode.parentNode){ emptyNode.remove(); }
+  renderCEO(all);
 }
 
 // ---- CEO panel: real "needs you now" + honest glance -------------------------
