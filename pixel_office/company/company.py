@@ -18,6 +18,8 @@ from .okr import OKRTree
 from .radar import TrendRadar
 from .runtime import OrgRuntime
 
+MAX_ACTIVITY = 50   # the CEO's "what did my company do" feed is bounded (memory-safe)
+
 
 class Company:
     def __init__(self, name: str, objective: str, *, mode: Optional[OperatingMode] = None,
@@ -32,9 +34,10 @@ class Company:
         self._trends: list = []
         self._last_meeting: Optional[dict] = None
         self.backlog: list = []          # pending Tasks (autonomy loop drains this)
-        # guards company state (memos/backlog/trends/okrs/memories) when the
+        self.activity: list = []         # bounded feed of what the company did (CEO watch)
+        # guards company state (memos/backlog/trends/okrs/activity) when the
         # autonomy thread mutates it while the API reads it. RLock: summary() ->
-        # hr_review() etc. re-enter safely.
+        # hr_review() etc. re-enter safely (and record_activity re-enters tick).
         self._lock = threading.RLock()
 
     def add_task(self, title: str, dri: str, task_class: str = "general"):
@@ -42,6 +45,19 @@ class Company:
         t = Task(title=title, dri=dri, task_class=task_class)
         self.backlog.append(t)
         return t
+
+    def record_activity(self, kind: str, text: str) -> None:
+        """Append one real thing the company did (plan/work/decision/trend/hr).
+        Bounded — the oldest entries fall off so the feed can't grow without limit."""
+        with self._lock:
+            self.activity.append({"kind": str(kind)[:16], "text": str(text)[:160]})
+            if len(self.activity) > MAX_ACTIVITY:
+                del self.activity[:-MAX_ACTIVITY]
+
+    def activity_view(self, limit: int = 12) -> list:
+        with self._lock:
+            n = max(1, min(int(limit) if isinstance(limit, int) else 12, MAX_ACTIVITY))
+            return list(self.activity[-n:])
 
     def hold_meeting(self, topic: str, decision_to_make: str, attendees, *,
                      position_fn, synthesize_fn, packet: Optional[dict] = None):

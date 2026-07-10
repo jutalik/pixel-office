@@ -73,6 +73,37 @@ def test_default_planner_targets_kr_owner_and_class():
     assert t.dri == "eng" and t.task_class == "kr1"
 
 
+def test_tick_records_what_the_company_did():
+    c = _company()
+    loop = AutonomyLoop(c, review_every_s=100)
+    loop.tick(now=0)
+    kinds = [a["kind"] for a in c.activity_view()]
+    assert "plan" in kinds and "work" in kinds and "decision" in kinds   # real actions logged
+    # the work entry names the owner + the task (legible to a non-dev CEO)
+    work = next(a for a in c.activity if a["kind"] == "work")
+    assert "eng" in work["text"]
+
+
+def test_failed_dispatch_is_logged_as_blocked_not_work():
+    # honesty: a task the executor couldn't complete must not read as done work
+    from pixel_office.company.runtime import TaskResult
+    c = _company()
+    c.runtime.executor = lambda emp, task: TaskResult(task.id, emp.id, ok=False, summary="nope")
+    AutonomyLoop(c, review_every_s=100).tick(now=0)
+    kinds = [a["kind"] for a in c.activity]
+    assert "blocked" in kinds and "work" not in kinds
+
+
+def test_activity_feed_is_bounded():
+    from pixel_office.company.company import MAX_ACTIVITY
+    c = _company()
+    for i in range(MAX_ACTIVITY + 25):
+        c.record_activity("work", f"did thing {i}")
+    assert len(c.activity) == MAX_ACTIVITY               # oldest fall off
+    assert c.activity[-1]["text"] == f"did thing {MAX_ACTIVITY + 24}"   # newest kept
+    assert len(c.activity_view(limit=5)) == 5            # view is a bounded tail
+
+
 def test_one_cadence_failure_does_not_abort_the_others():
     # a mid-tick cadence step blows up; the HR review (later in the tick) must
     # still run — each step is independently fail-open

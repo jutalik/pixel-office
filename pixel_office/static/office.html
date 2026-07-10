@@ -383,6 +383,16 @@ async function refreshCompany(){
     const th=document.createElement("h2"); th.textContent="📡 Trends"; th.style.margin="12px 0 4px"; desk.append(th);
     for (const t of tr.slice(0,6)){ const d=document.createElement("div"); d.className="readonly"; d.style.margin="2px 0"; d.textContent="• "+t; desk.append(d); }
   }
+  // Activity — what the company actually did (newest first), so the CEO can watch
+  const act=(data.activity||[]);
+  if (act.length){
+    const ic={plan:"🗺️",work:"⚙️",blocked:"⛔",decision:"🧠",trend:"📡",hr:"🧑‍🤝‍🧑"};
+    const ah2=document.createElement("h2"); ah2.textContent="🕑 Activity"; ah2.style.margin="12px 0 4px"; desk.append(ah2);
+    for (const a of act.slice().reverse().slice(0,10)){
+      const d=document.createElement("div"); d.className="readonly"; d.style.margin="2px 0";
+      d.append(document.createTextNode((ic[a.kind]||"•")+" "), esc(a.text)); desk.append(d);
+    }
+  }
 }
 setInterval(refreshCompany, 4000); refreshCompany();
 
