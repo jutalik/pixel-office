@@ -100,6 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--roles", help="e.g. '2 writer, 1 editor'")
     n.add_argument("--yes", action="store_true", help="skip confirmation (non-interactive)")
     n.set_defaults(func=_cmd_new)
+    dep = sub.add_parser("deploy", help="detect the env and recommend a promotion path")
+    dep.add_argument("--json", action="store_true")
+    dep.set_defaults(func=_cmd_deploy)
     return p
 
 
@@ -132,6 +135,21 @@ def _cmd_new(args) -> int:
     print(f"  cd {project.relative_to(Path.cwd()) if project.is_relative_to(Path.cwd()) else project}"
           f"/backend && uvicorn app:app --reload")
     print("  then `po up` to watch your team build it")
+    return 0
+
+
+def _cmd_deploy(args) -> int:
+    from .control.deploy import detect
+    plan = detect()
+    if args.json:
+        print(json.dumps(plan.__dict__, indent=2))
+        return 0
+    print("deploy environment:")
+    print(f"  localhost : yes")
+    print(f"  docker    : {'yes' if plan.docker else 'no'}")
+    print(f"  tunnels   : {', '.join(plan.tunnels) or 'none'}")
+    print(f"→ recommend : {plan.recommendation}")
+    print(f"  phone-reachable: {'yes' if plan.reachable_from_phone else 'no'} — {plan.note}")
     return 0
 
 

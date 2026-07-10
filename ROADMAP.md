@@ -108,6 +108,15 @@ regressions (a payload that would `open()` a sentinel file is proven inert after
 Approvals/budget (fail-closed, audit, single-use expiring capability tokens). Env-adaptive deploy
 playbook (localhost / docker / tunnel) for agent-driven live promotion.
 **Exit:** risky actions gated + audited; an agent promotes per the detected environment.
+✅ **Shipped 2026-07-10** (136 tests green). `control/approvals.py`: deterministic fail-closed
+`classify` (deploy/spend/delete/external_send/prod_change/grant_access), escalate-only UNION
+binding (a declared type never shrinks detected risk), single-use approvals that must be explicitly
+approved and are claimed atomically under a lock (20-thread test → exactly one winner), inclusive
+expiry, audit records holding a salted prompt HASH never the text. `control/deploy.py` + `po deploy`:
+detects docker/tunnel(cloudflared·tailscale)/localhost and recommends the least-public reachable
+path — live-verified (docker+tailscale → tunnel:tailscale, phone-reachable). All four Codex findings
+(claim-without-approval, non-atomic claim, declared-overrides-detected, expiry off-by-one) fixed
+with regressions. `classify` is an operator safety-belt, not an adversarial boundary (documented).
 
 ## Phase 7 — Mobile / PWA
 One responsive app, read-only monitor mode, same ws feed with reduced rendering, detail sheets.
