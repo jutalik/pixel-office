@@ -56,6 +56,27 @@ def test_ws_snapshot_then_delta(transcript):
             assert changed and changed[0]["activity"] == "done"
 
 
+def test_hook_receiver_auth_and_ingest(transcript):
+    app = create_app([transcript], hook_token="tok")
+    with TestClient(app) as client:
+        payload = {"hook_event_name": "PermissionRequest", "session_id": "sess-1"}
+        r = client.post("/hook/claude", json=payload)          # no token
+        assert r.status_code == 403
+        r = client.post("/hook/claude", json=payload, headers={"x-po-hook-token": "tok"})
+        assert r.status_code == 204
+        rows = client.get("/api/office").json()["rows"]
+        # hook waiting outranks the tailer's ancient 'working' frontier
+        assert rows[0]["activity"] == "waiting" and rows[0]["last_source"] == "hook"
+
+
+def test_hook_receiver_fails_open_on_garbage(transcript):
+    app = create_app([transcript], hook_token="tok")
+    with TestClient(app) as client:
+        r = client.post("/hook/claude", content=b"\x00not-json",
+                        headers={"x-po-hook-token": "tok"})
+        assert r.status_code == 204  # never blocks a hook
+
+
 def test_hub_delta_only_on_change(transcript):
     app = create_app([transcript])
     with TestClient(app):

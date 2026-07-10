@@ -58,6 +58,14 @@ harness caveat recorded in ARCHITECTURE: pooled setups can flush transcripts tur
 `po hooks install` (managed hook script) → live per-event push with tool/subagent granularity,
 fail-open, verified by `po doctor`, clean uninstall. **Reuses the Phase 0 reducer.**
 **Exit:** live mode shows PreToolUse/PostToolUse/subagent detail; disabling reverts to the tailer.
+✅ **Shipped 2026-07-10** (98 tests green). Receiver = POST /hook/{cli} on the dashboard port
+(loopback, per-run bearer token via a 0600 endpoint file; auth 403, everything else fails open
+204). Installer merges additively into settings.json under an ownership marker — user hooks are
+never touched, uninstall is surgical, corrupt settings are refused not clobbered, one reversible
+backup per change. Verified live end-to-end: the real installed script POSTed PermissionRequest →
+avatar flipped to `waiting` (outranking the tailer), SubagentStart spawned a second avatar with
+parent=main, and the script exits 0 with the receiver down. `waiting`/`blocked` — the hook-only
+states — are now reachable.
 
 ## Phase 3 — Multi-CLI adapters
 codex, grok, gemini behind one contract: `install → detect → observe → uninstall`. Hook-capable →

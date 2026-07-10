@@ -102,6 +102,10 @@ the same state, regardless of arrival order. Ships with **golden/replay tests**.
   cross-source rule, because independent sources never share a numbering.
 - **Ordering:** apply by stream `seq`; out-of-order arrivals within a stream are handled by
   latest-seq-wins. Cross-stream ordering uses `ts` only inside the grace-window merge.
+- **Clock trust:** the frontier merge trusts event timestamps, so a source with a grossly
+  future-skewed clock shadows other sources until the skew passes. Adapters therefore SHOULD mint
+  `ts` from the same clock family (the CLI's own machine clock); liveness already clamps future
+  timestamps to "now".
 - **Truncation/rotation** (tailer): a file shrinking below the resume cursor → reset the cursor;
   inode/mtime change → rescan. Resume only past the last complete newline-terminated record. The
   tailer's minted `seq` continues forward from its watermark across rescans (§1), so re-read

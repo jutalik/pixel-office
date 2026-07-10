@@ -37,21 +37,27 @@ def _cmd_up(args) -> int:
     except ImportError:
         print('po up needs the web extra: pip install "pixel-office[web]"', file=sys.stderr)
         return 1
+    import uuid
+
+    from . import hooks as po_hooks
+    hook_token = uuid.uuid4().hex
     if args.file:
         transcript = Path(args.file)
         if not transcript.exists():
             print(f"po up: transcript not found: {transcript}", file=sys.stderr)
             return 1
-        app = create_app([transcript], host_id=args.host_id)
+        app = create_app([transcript], host_id=args.host_id, hook_token=hook_token)
         watching = transcript.name
     else:
         from .telemetry.watcher import SessionWatcher
         spec = doctor._CLIS["claude"]
         pattern = str(doctor._resolve_home(spec) / spec["session_glob"])
         watcher = SessionWatcher(pattern, host_id=args.host_id)
-        app = create_app(sources=[watcher], host_id=args.host_id)
+        app = create_app(sources=[watcher], host_id=args.host_id, hook_token=hook_token)
         watching = f"all active Claude sessions ({pattern})"
-    print(f"pixel office → http://127.0.0.1:{args.port}   (watching {watching})")
+    po_hooks.write_endpoint_file(args.port, hook_token)  # hooks find us here
+    hooks_state = "on" if po_hooks.status().get("installed") else "off — `po hooks install` for live mode"
+    print(f"pixel office → http://127.0.0.1:{args.port}   (watching {watching}; hooks {hooks_state})")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 
@@ -68,7 +74,25 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--port", type=int, default=7717)
     u.add_argument("--host-id", default="local")
     u.set_defaults(func=_cmd_up)
+    h = sub.add_parser("hooks", help="manage the live-mode hook (opt-in upgrade)")
+    h.add_argument("action", choices=["install", "uninstall", "status"])
+    h.set_defaults(func=_cmd_hooks)
     return p
+
+
+def _cmd_hooks(args) -> int:
+    from . import hooks as po_hooks
+    try:
+        if args.action == "install":
+            print(po_hooks.install())
+        elif args.action == "uninstall":
+            print(po_hooks.uninstall())
+        else:
+            print(json.dumps(po_hooks.status(), indent=2))
+        return 0
+    except RuntimeError as e:
+        print(f"po hooks: {e}", file=sys.stderr)
+        return 1
 
 
 def main(argv=None) -> int:

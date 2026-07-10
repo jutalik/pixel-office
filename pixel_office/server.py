@@ -17,9 +17,10 @@ from typing import List, Optional
 # NOTE: no `from __future__ import annotations` here — FastAPI must resolve the
 # WebSocket annotation at runtime, and these deps are the `web` extra (cli.py
 # imports this module lazily and reports the missing extra cleanly).
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from .telemetry.hook_events import HookEventFactory
 from .telemetry.reducer import initial_state, reduce, view
 from .telemetry.tailer import TranscriptTailer
 
@@ -47,6 +48,15 @@ class OfficeHub:
 
     def current_view(self) -> List[dict]:
         return view(self.state, datetime.now(timezone.utc))
+
+    def ingest(self, ev) -> List[dict]:
+        """Apply one event immediately (hook path) and return changed rows."""
+        self.state = reduce(self.state, ev)
+        new_view = self.current_view()
+        old = {self._row_key(r): r for r in self.last_view}
+        changed = [r for r in new_view if old.get(self._row_key(r)) != r]
+        self.last_view = new_view
+        return changed
 
     def tick_sync(self) -> List[dict]:
         """One poll cycle: ingest events, recompute view, return changed rows."""
@@ -103,11 +113,13 @@ class OfficeHub:
 
 
 def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "local",
-               sources: Optional[List] = None) -> FastAPI:
+               sources: Optional[List] = None,
+               hook_token: Optional[str] = None) -> FastAPI:
     src = list(sources) if sources else []
     for p in (transcripts or []):
         src.append(TranscriptTailer(p, host_id=host_id))
     hub = OfficeHub(src)
+    hook_factory = HookEventFactory(host_id)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -126,6 +138,24 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
     @app.get("/api/office")
     async def office_snapshot():
         return JSONResponse({"rows": hub.current_view()})
+
+    @app.post("/hook/{cli}")
+    async def hook_receiver(cli: str, request: Request):
+        # bearer check first; everything past auth FAILS OPEN with 204 — a hook
+        # must never learn (or care) that the receiver had a bad day. A missing
+        # token CONFIGURATION means the receiver is off (403), never open.
+        if not hook_token or request.headers.get("x-po-hook-token") != hook_token:
+            return Response(status_code=403)
+        try:
+            payload = json.loads(await request.body())
+            ev = hook_factory.from_payload(cli, payload)
+            if ev is not None:
+                changed = hub.ingest(ev)     # per-event push, no poll latency
+                if changed and hub.clients:
+                    await hub._broadcast({"type": "delta", "rows": changed})
+        except Exception:
+            pass
+        return Response(status_code=204)
 
     @app.websocket("/ws/office")
     async def ws_office(ws: WebSocket):
