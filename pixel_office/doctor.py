@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from .telemetry.normalize import known_clis
+from .telemetry.sqlite_source import known_mappers as known_sqlite_mappers
 
 _TRANSCRIPT_COUNT_CAP = 500
 
@@ -54,11 +55,22 @@ _CLIS = {
         "session_glob": "sessions/*/*/events.jsonl",
         "hooks": True, "hook_kind": "config",
     },
-    "gemini": {
-        "extra_bin_dirs": [],
-        "env_home": None,  # no documented home-override env var for gemini-cli
+    # agy = Antigravity CLI (Google), the successor to gemini-cli. Auth is a disk
+    # token under ~/.gemini/antigravity-cli/; sessions are a SQLite conversations
+    # DB (not JSONL). The SQLite session source exists (sqlite_source.py) but the
+    # row mapper is PROVISIONAL until verified against a live agy install — so
+    # normalize stays unsupported and telemetry reports hooks/DB availability only.
+    "agy": {
+        "extra_bin_dirs": [Path.home() / ".local" / "bin"],
+        # agy has no dedicated home env var; it isolates by HOME (agy-ha runs each
+        # session under HOME=~/.claude-ha/agy-sessions/<id>, whose DB is at
+        # <that-home>/.gemini/antigravity-cli/*.db). The default single-user store
+        # is ~/.gemini/antigravity-cli/*.db; globbing the isolated homes is a
+        # watcher extension for later.
+        "env_home": None,
         "home": Path.home() / ".gemini",
-        "session_glob": "tmp/*/chats/session-*.jsonl",
+        "session_glob": None,                       # SQLite, not a glob of JSONL
+        "session_sqlite": "antigravity-cli/*.db",   # conversations DB(s)
         "hooks": True, "hook_kind": "settings",
     },
     "hermes": {
@@ -124,14 +136,23 @@ def free_port_available(preferred: int = 0) -> Optional[int]:
 
 def detect_clis() -> dict:
     supported = set(known_clis())
+    sqlite_ok = set(known_sqlite_mappers())
     out = {}
     for name, spec in _CLIS.items():
         binpath = _which(name, spec["extra_bin_dirs"])
         home = _resolve_home(spec)
-        transcripts = _count_transcripts(home, spec["session_glob"]) if binpath else None
+        sqlite_glob = spec.get("session_sqlite")
+        # a CLI is tailable if it has a JSONL glob, OR a SQLite store with a
+        # VERIFIED row mapper (unverified SQLite stores don't count as tailer)
+        jsonl = spec["session_glob"]
+        transcripts = _count_transcripts(home, jsonl) if (binpath and jsonl) else None
+        sqlite_dbs = (_count_transcripts(home, sqlite_glob)
+                      if (binpath and sqlite_glob) else None)
         caps = []
         if binpath:
-            if spec["session_glob"] is not None:
+            if jsonl is not None:
+                caps.append("tailer")
+            elif sqlite_glob is not None and name in sqlite_ok:
                 caps.append("tailer")
             if spec["hooks"]:
                 caps.append("hooks")
@@ -141,10 +162,12 @@ def detect_clis() -> dict:
             "hooks_capable": spec["hooks"],
             "hook_kind": spec["hook_kind"],
             "normalize_supported": name in supported,
+            "session_kind": ("jsonl" if jsonl else "sqlite" if sqlite_glob else None),
+            "sqlite_mapper_verified": name in sqlite_ok if sqlite_glob else None,
             "home": str(home),
-            "session_glob": (str(home / spec["session_glob"])
-                             if spec["session_glob"] else None),
-            "transcripts": transcripts,
+            "session_glob": (str(home / jsonl) if jsonl
+                             else str(home / sqlite_glob) if sqlite_glob else None),
+            "transcripts": transcripts if jsonl else sqlite_dbs,
             "telemetry": "+".join(caps) if caps else "unavailable",
         }
     return out

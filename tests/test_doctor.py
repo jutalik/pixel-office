@@ -5,11 +5,24 @@ def test_run_shape():
     r = doctor.run()
     assert "os" in r and "clis" in r
     assert r["os"]["system"] in ("Linux", "Darwin", "Windows")
-    for name in ("claude", "codex", "grok", "gemini", "hermes"):
+    assert "gemini" not in r["clis"]  # replaced by agy (Antigravity)
+    for name in ("claude", "codex", "grok", "agy", "hermes"):
         assert name in r["clis"]
         c = r["clis"][name]
         assert {"available", "hooks_capable", "hook_kind", "normalize_supported",
-                "home", "session_glob", "transcripts", "telemetry"}.issubset(c)
+                "session_kind", "home", "session_glob", "transcripts", "telemetry"}.issubset(c)
+
+
+def test_agy_is_sqlite_and_provisional():
+    c = doctor.run()["clis"]["agy"]
+    assert c["session_kind"] == "sqlite"
+    assert c["hooks_capable"] is True
+    # provisional: no verified sqlite mapper yet, so not a tailer source and not
+    # normalize-supported — doctor must not over-promise agy telemetry
+    assert c["normalize_supported"] is False
+    assert c["sqlite_mapper_verified"] is False
+    if c["available"]:
+        assert "tailer" not in c["telemetry"]  # unverified sqlite != tailer
 
 
 def test_telemetry_value_is_valid_for_every_cli():
@@ -31,7 +44,8 @@ def test_normalize_supported_only_for_implemented_tables():
     assert r["clis"]["claude"]["normalize_supported"] is True
     assert r["clis"]["codex"]["normalize_supported"] is True   # Phase 3 (2026-07-10)
     assert r["clis"]["grok"]["normalize_supported"] is True    # Phase 3 (2026-07-10)
-    assert r["clis"]["hermes"]["normalize_supported"] is False  # next adapter
+    assert r["clis"]["agy"]["normalize_supported"] is False    # provisional (SQLite, unverified)
+    assert r["clis"]["hermes"]["normalize_supported"] is False  # hooks-only
 
 
 def test_env_home_override_and_transcript_glob(tmp_path, monkeypatch):

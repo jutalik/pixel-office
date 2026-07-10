@@ -55,6 +55,17 @@
   #banner { display:none; background:#f9e2af22; color:#f9e2af; font-size:11px; padding:6px 18px;
             border-bottom:1px solid #f9e2af44; }
   #banner.show { display:block; }
+  .avatar { cursor:pointer; }
+  #sheet { position:fixed; right:0; top:0; bottom:0; width:min(320px,86vw); background:#1e1e2e;
+           border-left:2px solid var(--line); box-shadow:-4px 0 20px #0008; transform:translateX(100%);
+           transition:transform .25s ease; padding:18px; z-index:10; overflow:auto; }
+  #sheet.open { transform:translateX(0); }
+  #sheet h2 { font-size:13px; margin:0 0 12px; letter-spacing:1px; }
+  #sheet dl { display:grid; grid-template-columns:auto 1fr; gap:6px 12px; font-size:12px; margin:0; }
+  #sheet dt { color:var(--dim); } #sheet dd { margin:0; word-break:break-all; }
+  #sheet .close { position:absolute; top:12px; right:14px; color:var(--dim); cursor:pointer;
+                  background:none; border:none; font-size:16px; }
+  #sheet .readonly { margin-top:16px; font-size:10px; color:var(--dim); }
   /* mobile: single-column rooms, larger touch targets, read-only monitor */
   @media (max-width:600px){
     #floor { grid-template-columns:1fr; padding:10px; gap:10px; }
@@ -82,6 +93,12 @@
 </header>
 <div id="banner"></div>
 <div id="floor"><div id="empty">no agents yet — run a CLI (claude / codex / grok) and watch.</div></div>
+<aside id="sheet" hidden>
+  <button class="close" id="sheetClose" aria-label="close">✕</button>
+  <h2 id="sheetTitle"></h2>
+  <dl id="sheetBody"></dl>
+  <div class="readonly">read-only monitor — actions are gated by the control plane, not this view.</div>
+</aside>
 <script>
 "use strict";
 const banner = document.getElementById("banner");
@@ -125,6 +142,9 @@ function render(){
       rendered++;
       const av = document.createElement("div");
       av.className = `avatar ${r.activity} ${r.liveness}` + (r.last_kind_meta ? " say":"");
+      av.tabIndex = 0; av.setAttribute("role", "button");
+      av.addEventListener("click", () => openSheet(r));
+      av.addEventListener("keydown", (e) => { if (e.key === "Enter") openSheet(r); });
       const bubble = document.createElement("div"); bubble.className="bubble";
       bubble.textContent = r.speech || r.activity;
       const face = document.createElement("div"); face.className="face";
@@ -141,6 +161,27 @@ function render(){
     m.textContent = `+${hidden} more agents (raise MAX_RENDER to show)`; floor.append(m); }
 }
 document.addEventListener("visibilitychange", render);
+
+// detail sheet (read-only) — Phase 7 "detail sheets instead of tabs"
+const sheet = document.getElementById("sheet");
+const sheetTitle = document.getElementById("sheetTitle");
+const sheetBody = document.getElementById("sheetBody");
+function openSheet(r){
+  sheetTitle.textContent = `${r.cli} · ${r.agent_id}`;
+  sheetBody.textContent = "";
+  const fields = [["activity", r.activity], ["liveness", r.liveness], ["session", r.session_id],
+                  ["parent", r.parent_agent_id || "—"], ["source", r.last_source],
+                  ["last seen", r.last_ts]];
+  for (const [k, v] of fields){
+    const dt = document.createElement("dt"); dt.textContent = k;
+    const dd = document.createElement("dd"); dd.textContent = v;   // textContent — no injection
+    sheetBody.append(dt, dd);
+  }
+  sheet.hidden = false; requestAnimationFrame(() => sheet.classList.add("open"));
+}
+function closeSheet(){ sheet.classList.remove("open"); setTimeout(() => { sheet.hidden = true; }, 250); }
+document.getElementById("sheetClose").addEventListener("click", closeSheet);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
 
 function bubbleFor(r){ return r.activity==="waiting" ? "needs you"
                      : r.activity==="done" ? "wrapped up"
