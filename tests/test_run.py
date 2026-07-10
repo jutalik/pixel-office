@@ -27,7 +27,8 @@ def test_build_company_tolerates_garbage():
 
 def test_cmd_run_missing_manifest(tmp_path, capsys):
     from pixel_office import cli
-    rc = cli._cmd_run(types.SimpleNamespace(dir=str(tmp_path), port=7717, host_id="local", demo=False))
+    rc = cli._cmd_run(types.SimpleNamespace(dir=str(tmp_path), port=7717, host_id="local",
+                                            demo=False, live=False))
     assert rc == 1 and "po new" in capsys.readouterr().err
 
 
@@ -35,8 +36,40 @@ def test_cmd_run_bad_json(tmp_path, capsys):
     pytest.importorskip("fastapi")
     from pixel_office import cli
     (tmp_path / "pixel-office.json").write_text("{not json")
-    rc = cli._cmd_run(types.SimpleNamespace(dir=str(tmp_path), port=7717, host_id="local", demo=False))
+    rc = cli._cmd_run(types.SimpleNamespace(dir=str(tmp_path), port=7717, host_id="local",
+                                            demo=False, live=False))
     assert rc == 1 and "can't read" in capsys.readouterr().err   # clean error, no traceback
+
+
+def test_cmd_run_live_wires_real_executor_without_running(tmp_path, monkeypatch):
+    # --live swaps in the CLIExecutor but must NOT auto-run tasks (no token spend)
+    pytest.importorskip("fastapi")
+    import types as _t
+
+    from pixel_office import cli
+    from pixel_office.company.executor_cli import CLIExecutor
+
+    (tmp_path / "pixel-office.json").write_text(
+        '{"name":"c","goal":"g","mode":"Copilot","roles":[{"title":"eng","count":1}]}')
+
+    captured = {}
+
+    def fake_create_app(sources=None, company=None, host_id="local"):
+        captured["company"] = company
+        hub = _t.SimpleNamespace(ingest=lambda ev: None)
+        return _t.SimpleNamespace(state=_t.SimpleNamespace(hub=hub))
+
+    invoke_calls = []
+    monkeypatch.setattr("pixel_office.server.create_app", fake_create_app)
+    monkeypatch.setattr("pixel_office.company.cli_invoke.make_subprocess_invoke",
+                        lambda **k: (lambda cli_, prompt: invoke_calls.append(1) or ""))
+    monkeypatch.setattr("uvicorn.run", lambda app, **kw: None)
+
+    rc = cli._cmd_run(_t.SimpleNamespace(dir=str(tmp_path), port=7717, host_id="local",
+                                         demo=False, live=True))
+    assert rc == 0
+    assert isinstance(captured["company"].runtime.executor, CLIExecutor)  # real executor wired
+    assert invoke_calls == []                                              # NOT auto-run → 0 tokens
 
 
 def test_e2e_new_then_run_shows_live_company(tmp_path):

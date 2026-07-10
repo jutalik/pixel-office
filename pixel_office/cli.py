@@ -116,6 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--host-id", default="local")
     r.add_argument("--demo", action="store_true",
                    help="simulate employee activity with the deterministic executor (no real work)")
+    r.add_argument("--live", action="store_true",
+                   help="employees use your real CLIs to do actual work (SPENDS TOKENS)")
     r.set_defaults(func=_cmd_run)
     return p
 
@@ -190,7 +192,17 @@ def _cmd_run(args) -> int:
     app = create_app(sources=[], company=company, host_id=args.host_id)
     company.runtime.sink = app.state.hub.ingest
     banner = f"{company.name} · {len(company.team)} employees · mode {company.mode.drive}"
-    if args.demo:
+    if args.live:
+        # REAL employees: activate installed CLIs to do actual work. This SPENDS
+        # TOKENS. Employees stay dormant until assigned work — no auto-run here.
+        from .company.cli_invoke import make_subprocess_invoke
+        from .company.executor_cli import CLIExecutor
+        company.runtime.executor = CLIExecutor(invoke_fn=make_subprocess_invoke(),
+                                               memories=company.runtime.memories)
+        banner += " · LIVE (real CLI agents — spends tokens; dormant until assigned)"
+        print("po run --live: employees will use your real CLIs and SPEND TOKENS when assigned work.",
+              file=sys.stderr)
+    elif args.demo:
         # DEMO: the deterministic executor SIMULATES work (no real LLM, 0 tokens)
         # so you can see the office move. This is explicitly not real work.
         from .company.runtime import Task
