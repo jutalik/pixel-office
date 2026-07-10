@@ -60,6 +60,22 @@ def _families_of(emp: Employee) -> set:
     return fams
 
 
+# stable priority + display label for the department an employee belongs to
+_DEPT_ORDER = ("engineering", "content", "growth", "design", "data")
+_DEPT_LABELS = {"engineering": "Engineering", "content": "Content", "growth": "Growth",
+                "design": "Design", "data": "Data"}
+
+
+def department_of(emp: Employee) -> str:
+    """A display department for the office floor. Deterministic; unmatched roles
+    land in a shared 'Team' room rather than being hidden."""
+    fams = _families_of(emp)
+    for fam in _DEPT_ORDER:
+        if fam in fams:
+            return _DEPT_LABELS[fam]
+    return "Team"
+
+
 def _emp_keywords(emp: Employee) -> set:
     kws = set()
     for fam in _families_of(emp):

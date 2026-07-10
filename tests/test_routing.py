@@ -2,7 +2,7 @@
 from pixel_office.company.company import Company
 from pixel_office.company.employee import Employee
 from pixel_office.company.okr import KeyResult
-from pixel_office.company.routing import best_owner, role_fit
+from pixel_office.company.routing import best_owner, department_of, role_fit
 
 
 def _team():
@@ -73,3 +73,16 @@ def test_unhashable_kr_id_does_not_crash_routing():
     c = _team()
     kr = KeyResult(["not", "a", "str"], "publish 10 recipes", target=10)  # bad id type
     assert best_owner(c, kr).id == "writer"      # routes by fit, no TypeError
+
+
+def test_department_of_maps_role_to_a_room():
+    assert department_of(Employee("e", "backend engineer")) == "Engineering"
+    assert department_of(Employee("w", "content writer")) == "Content"
+    assert department_of(Employee("m", "growth marketer")) == "Growth"
+    assert department_of(Employee("o", "office manager")) == "Team"   # unmatched → shared room
+
+
+def test_company_roster_carries_departments():
+    c = _team()
+    depts = {r["id"]: r["dept"] for r in c.roster()}
+    assert depts == {"eng": "Engineering", "writer": "Content", "mkt": "Growth"}

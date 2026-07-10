@@ -205,6 +205,7 @@ function saveJSON(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } cat
 const profiles = loadJSON("po:profiles", {});   // charId -> {displayName,sprite,accent}
 const officeCfg = loadJSON("po:office", { rooms:{} });  // roomId -> {label}
 let lastMeeting = null;   // set from /api/company (a concluded async meeting)
+let roster = {};          // company employee id -> department (from /api/company)
 function setBanner(m){ if(m){banner.textContent=m;banner.classList.add("show");} else banner.classList.remove("show"); }
 
 function charId(r){ return [r.host_id,r.cli,r.session_id,r.agent_id].join("|"); }
@@ -224,7 +225,13 @@ function render(){
   if (document.hidden) return;
   const all = [...rows.values()];
   const byRoom = new Map();
-  for (const r of all){ const k=r.cli; (byRoom.get(k)||byRoom.set(k,[]).get(k)).push(r); }
+  // company avatars split into department rooms (Engineering / Content / …) from
+  // the roster; real CLI sessions group by their CLI. Honest org structure.
+  // `po run` hosts ONE company, so every cli==="company" row is this company and
+  // agent_id is unique here; an id not in the roster falls back to the generic
+  // "company" room (never a wrong department).
+  for (const r of all){ const k = (r.cli==="company" && roster[r.agent_id]) ? roster[r.agent_id] : r.cli;
+    (byRoom.get(k)||byRoom.set(k,[]).get(k)).push(r); }
   floor.textContent = "";
   if (!all.length){ const e=document.createElement("div"); e.id="empty";
     e.textContent="no agents yet — run a CLI (claude / codex / grok) and watch."; floor.append(e); }
@@ -376,7 +383,10 @@ async function refreshCompany(){
   try { const r=await fetch("/api/company"); if(r.status===200) data=await r.json(); } catch(e){}
   const prevMeeting = lastMeeting;
   lastMeeting = data ? data.meeting : null;
-  if (JSON.stringify(prevMeeting) !== JSON.stringify(lastMeeting)) render();  // refresh the meeting room
+  const nextRoster = {}; if (data) for (const m of (data.roster||[])) nextRoster[m.id]=m.dept;
+  const rosterChanged = JSON.stringify(nextRoster) !== JSON.stringify(roster);
+  roster = nextRoster;
+  if (rosterChanged || JSON.stringify(prevMeeting) !== JSON.stringify(lastMeeting)) render();  // refresh floor/meeting room
   if (!data){  // no company → honest gated view (built with icons, no emoji)
     if (!desk.querySelector(".gate")){
       desk.textContent="";

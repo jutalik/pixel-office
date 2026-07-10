@@ -76,6 +76,14 @@ class Company:
     def meeting_view(self) -> Optional[dict]:
         return self._last_meeting
 
+    def roster(self) -> list:
+        """Org structure for the office floor: each employee + their department.
+        Real org data (from roles), so avatars can group into department rooms."""
+        from .routing import department_of
+        with self._lock:
+            return [{"id": e.id, "title": e.title, "dept": department_of(e)}
+                    for e in self.team.all()]
+
     def hr_review(self) -> list:
         return hr_mod.review(self.team, self.runtime.memories, mode=self.mode)
 

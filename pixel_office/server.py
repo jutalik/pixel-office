@@ -209,7 +209,7 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
             body = {"summary": company.summary(), "okrs": company.okr_view(),
                     "ceo_cards": company.ceo_cards(), "hr": company.hr_view(),
                     "trends": company.trends_view(), "meeting": company.meeting_view(),
-                    "activity": company.activity_view()}
+                    "activity": company.activity_view(), "roster": company.roster()}
         return JSONResponse(body)
 
     @app.post("/hook/{cli}")
