@@ -41,9 +41,9 @@
   .avatar { position:absolute; width:52px; text-align:center; transition:left .5s ease, top .5s ease, opacity .3s;
             image-rendering:pixelated; cursor:pointer; }
   .avatar:focus { outline:2px solid var(--done); border-radius:4px; }
+  /* face = a unique procedural pixel character (identity); status shows on the ring */
   .face { line-height:1; color:var(--ink); } .face svg { width:28px; height:28px; display:block; margin:0 auto; }
-  .working .face{color:var(--working)} .waiting .face{color:var(--waiting)}
-  .blocked .face{color:var(--blocked)} .done .face{color:var(--done)}
+  .pixchar { image-rendering:pixelated; } .face .pixchar { width:34px; height:34px; }
   /* Lucide inline icons (no emoji) — inherit color via currentColor */
   .ico { width:14px; height:14px; display:inline-block; vertical-align:-2px; flex:0 0 auto; }
   h2 .ico { width:13px; height:13px; vertical-align:-1px; margin-right:6px; }
@@ -94,8 +94,8 @@
   .field { margin:10px 0; } .field label { display:block; font-size:10px; color:var(--dim); margin-bottom:4px; }
   .field input, .field textarea { width:100%; background:#1e1e2e; color:var(--ink); border:1px solid var(--line);
            border-radius:4px; padding:6px; font-family:inherit; font-size:12px; }
-  .sprites { display:flex; flex-wrap:wrap; gap:6px; } .sprites button { padding:5px 7px; line-height:0; }
-  .sprites .ico { width:20px; height:20px; margin:0; }
+  .sprites { display:flex; flex-wrap:wrap; gap:6px; } .sprites button { padding:4px; line-height:0; }
+  .sprites .ico { width:20px; height:20px; margin:0; } .sprites .pixchar { width:26px; height:26px; }
   .sprites button[aria-pressed="true"]{ outline:2px solid var(--done); }
   .swatches { display:flex; gap:6px; } .swatches button { width:22px; height:22px; border-radius:50%; padding:0; }
   .msg-state { font-size:10px; color:var(--dim); margin-top:6px; }
@@ -135,8 +135,8 @@
   <h2 id="sheetTitle"></h2>
   <dl id="sheetBody"></dl>
   <div class="field"><label>Display name</label><input id="cName" maxlength="24"></div>
-  <div class="field"><label>Sprite</label><div class="sprites" id="cSprites"></div></div>
-  <div class="field"><label>Accent</label><div class="swatches" id="cSwatches"></div></div>
+  <div class="field"><label>Character</label><div class="sprites" id="cSprites"></div></div>
+  <div class="field"><label>Shirt color</label><div class="swatches" id="cSwatches"></div></div>
   <div class="field"><label>Message this session</label>
     <textarea id="cMsg" rows="3" placeholder="write a note…"></textarea>
     <div style="display:flex;gap:6px;margin-top:6px"><button id="cQueue">Queue locally</button><button id="cCopy">Copy</button></div>
@@ -190,9 +190,7 @@ function lucide(name, cls){
   return svg;
 }
 function heading(name, text){ const h=document.createElement("h2"); h.append(lucide(name), document.createTextNode(text)); return h; }
-// avatar glyph per activity + the customizable sprite palette (icon names, no emoji)
-const FACES = { working:"code", waiting:"circle-help", blocked:"circle-alert", done:"circle-check" };
-const SPRITE_CHOICES = ["user","bot","code","cpu","rocket","ghost","cat","star","smile","flame"];
+// shirt-color palette for procedural characters (also the customize swatches)
 const SWATCHES = ["#a6e3a1","#f9e2af","#89b4fa","#f38ba8","#cba6f7","#94e2d5"];
 const rows = new Map();               // charId -> row (live telemetry)
 const floor = document.getElementById("floor"), conn = document.getElementById("conn");
@@ -212,7 +210,71 @@ function charId(r){ return [r.host_id,r.cli,r.session_id,r.agent_id].join("|"); 
 function profileOf(id, r){
   const p = profiles[id] || {};
   return { displayName: p.displayName || (r.agent_id==="main"? r.session_id.slice(0,8): r.agent_id),
-           sprite: p.sprite || null, accent: p.accent || null };
+           accent: p.accent || null, variant: p.variant || 0 };
+}
+
+// ---- procedural pixel characters (each id → a distinct little person) --------
+// Inspired by Pixel Agents (one agent = one character) + DiceBear/Minidenticons
+// (deterministic seed→art, no bundled assets). A character is a feature vector
+// derived from a hash of its stable id, rendered as pixel <rect>s in a 16×16 SVG
+// — CSP-safe, offline, no images. skin(5)×hair(8)×hairStyle(6)×eyes(3)×shirt(6)
+// = 4320 combos, so duplicates are near-impossible; a render pass still salts the
+// seed on any collision so no two VISIBLE characters are identical.
+const SKIN = ["#f2d3b3", "#e8b98f", "#c68642", "#8d5524", "#ffe0bd"];
+const HAIR = ["#2b2b3a", "#5b3a1e", "#8a5a2b", "#c9a24b", "#b34b4b", "#6a4bb3", "#3a7d44", "#d9d9e3"];
+const INK = "#1e1e2e";
+function hashStr(s){ let h=2166136261>>>0; for (let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+function baseSeed(id, variant){ return hashStr(id + "#" + (variant||0)); }
+function featuresFrom(h){ h=h>>>0;
+  return { skin: SKIN[h % SKIN.length], hair: HAIR[(h>>>3) % HAIR.length],
+           hairStyle: (h>>>6) % 6, eyes: (h>>>9) % 3, shirt: SWATCHES[(h>>>12) % SWATCHES.length] }; }
+function featKey(f){ return [f.skin, f.hair, f.hairStyle, f.eyes, f.shirt].join("|"); }
+// only a real hex color may ever reach the SVG string (accent comes from
+// localStorage, which is user-controllable) — everything else is a fixed palette
+function safeColor(c){ return (typeof c==="string" && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : null; }
+let currentLooks = {};   // id -> features, recomputed each render (dedup-stable)
+function resolveLooks(ids){
+  const used = new Set(), out = {};
+  for (const id of ids.slice().sort()){          // deterministic → stable dedup
+    const p = profiles[id] || {};
+    const pinned = Object.prototype.hasOwnProperty.call(p, "variant");  // variant:0 is a valid pin
+    let variant = p.variant || 0; const shirt = safeColor(p.accent);
+    let f = featuresFrom(baseSeed(id, variant)); if (shirt) f.shirt = shirt;
+    // salt the seed until this character is visually unique (unless user-pinned);
+    // best-effort within the cap — with 4320 combos a free one is found unless the
+    // office genuinely exceeds the palette
+    for (let g=0; g<80 && used.has(featKey(f)) && !pinned; g++){
+      variant++; f = featuresFrom(baseSeed(id, variant)); if (shirt) f.shirt = shirt; }
+    used.add(featKey(f)); out[id] = f;
+  }
+  return out;
+}
+function lookOf(id){ const p = profiles[id] || {};
+  return currentLooks[id] || (function(){ const f=featuresFrom(baseSeed(id, p.variant||0));
+    const shirt=safeColor(p.accent); if(shirt) f.shirt=shirt; return f; })(); }
+
+function _rect(x, y, w, h, fill){ return "<rect x='"+x+"' y='"+y+"' width='"+w+"' height='"+h+"' fill='"+fill+"'/>"; }
+function pixelCharSVG(f, cls){
+  let g = "";
+  // torso + arms (shirt) and neck
+  g += _rect(4,11,8,5,f.shirt) + _rect(3,12,1,3,f.shirt) + _rect(12,12,1,3,f.shirt) + _rect(6,10,4,1,f.skin);
+  g += _rect(4,3,8,7,f.skin);                                   // head
+  // hair / hat
+  if (f.hairStyle===0){ g += _rect(4,2,8,2,f.hair); }                                   // short
+  else if (f.hairStyle===1){ g += _rect(4,2,8,2,f.hair)+_rect(3,3,1,5,f.hair)+_rect(12,3,1,5,f.hair); } // long
+  else if (f.hairStyle===2){ g += _rect(3,3,10,1,f.hair)+_rect(5,1,6,2,f.hair); }       // cap
+  else if (f.hairStyle===3){ g += _rect(7,0,2,4,f.hair); }                              // mohawk
+  else if (f.hairStyle===4){ g += _rect(5,2,2,1,f.hair); }                              // bald-ish
+  else { g += _rect(4,2,8,2,f.hair)+_rect(11,3,2,2,f.hair); }                           // bun
+  // eyes
+  if (f.eyes===0){ g += _rect(6,6,1,1,INK)+_rect(9,6,1,1,INK); }                        // dots
+  else if (f.eyes===1){ g += _rect(6,6,1,2,INK)+_rect(9,6,1,2,INK); }                   // wide
+  else { g += _rect(6,6,4,1,INK); }                                                     // visor
+  g += _rect(6,8,4,1,"#00000022");                                                      // mouth
+  const svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'>"+g+"</svg>";
+  const el = document.importNode(new DOMParser().parseFromString(svg, "image/svg+xml").documentElement, true);
+  el.setAttribute("class", "pixchar" + (cls ? " " + cls : ""));
+  return el;
 }
 function bubbleText(r){ return r.activity==="waiting"?"needs you": r.activity==="done"?"wrapped up":
                         r.activity==="blocked"?"blocked":"working"; }
@@ -224,6 +286,7 @@ function roomLabel(id, fallback){ return (officeCfg.rooms[id] && officeCfg.rooms
 function render(){
   if (document.hidden) return;
   const all = [...rows.values()];
+  currentLooks = resolveLooks(all.map(charId));   // distinct look per visible avatar
   const byRoom = new Map();
   // company avatars split into department rooms (Engineering / Content / …) from
   // the roster; real CLI sessions group by their CLI. Honest org structure.
@@ -263,7 +326,11 @@ function render(){
       const av=document.createElement("div"); av.className="avatar done say";
       const b=document.createElement("div"); b.className="bubble";
       b.textContent=String((lastMeeting.decisions&&lastMeeting.decisions[0])||"decided").slice(0,40);
-      const f=document.createElement("div"); f.className="face"; f.style.color="#cba6f7"; f.append(lucide("user"));
+      // match the attendee to their live desk avatar so they look identical (and
+      // are covered by dedup); fall back to a per-id look for historical attendees
+      const liveRow=all.find(x=>x.cli==="company" && x.agent_id===aid);
+      const f=document.createElement("div"); f.className="face";
+      f.append(pixelCharSVG(liveRow ? lookOf(charId(liveRow)) : lookOf(aid)));
       const nm=document.createElement("div"); nm.className="nm"; nm.textContent=aid;
       av.style.left=(18*(i%4)+10)+"%"; av.style.top=(Math.floor(i/4)*46)+"px"; av.append(b,f,nm);
       stage.append(av);
@@ -293,10 +360,10 @@ function makeAvatar(r, i, n){
   av.style.left = (cw*(i%cols) + cw/2 - 6) + "%";
   av.style.top  = (Math.floor(i/cols)*46) + "px";
   const bubble=document.createElement("div"); bubble.className="bubble"; bubble.textContent=bubbleText(r);
-  const face=document.createElement("div"); face.className="face"; face.append(lucide(prof.sprite || FACES[r.activity] || "user"));
-  if (prof.accent) face.style.filter = `drop-shadow(0 0 3px ${prof.accent})`;
+  // face = a unique pixel character (identity); ring = activity status color
+  const face=document.createElement("div"); face.className="face"; face.append(pixelCharSVG(lookOf(id)));
   const nm=document.createElement("div"); nm.className="nm"; nm.textContent = prof.displayName;
-  const ring=document.createElement("div"); ring.className="ring"; if(prof.accent) ring.style.background=prof.accent;
+  const ring=document.createElement("div"); ring.className="ring";
   av.append(bubble,face,nm,ring);
   av.addEventListener("click", ()=>openSheet(r));
   av.addEventListener("keydown", e=>{ if(e.key==="Enter") openSheet(r); });
@@ -320,7 +387,7 @@ function renderCEO(all){
     li.textContent="nothing needs you — the team is running."; needs.append(li); }
   for (const r of attention){ const id=charId(r); const prof=profileOf(id,r);
     const li=document.createElement("li"); li.className = r.activity==="waiting"||r.activity==="blocked"? r.activity:"disconnected";
-    const f=document.createElement("span"); f.className="face "+r.activity; f.append(lucide(prof.sprite || FACES[r.activity] || "user"));
+    const f=document.createElement("span"); f.className="face"; f.append(pixelCharSVG(lookOf(id)));
     const box=document.createElement("div");
     const t=document.createElement("div"); t.textContent = prof.displayName + " · " + r.cli;
     const why=document.createElement("div"); why.className="why";
@@ -344,9 +411,12 @@ function openSheet(r){
   const nameI=document.getElementById("cName"); nameI.value = prof.displayName;
   nameI.oninput=()=>saveProfile(id,{displayName:nameI.value.trim()});
   const sp=document.getElementById("cSprites"); sp.textContent="";
-  SPRITE_CHOICES.forEach(s=>{ const b=document.createElement("button");
-    b.append(lucide(s)); b.title=s; b.setAttribute("aria-pressed", (prof.sprite===s)?"true":"false");
-    b.onclick=()=>{ saveProfile(id,{sprite:s}); openSheet(r); render(); }; sp.append(b); });
+  const curVar=(profiles[id]||{}).variant||0;
+  for (let v=0; v<8; v++){ const b=document.createElement("button");
+    const f=featuresFrom(baseSeed(id,v)); const shirt=safeColor(prof.accent); if(shirt) f.shirt=shirt;
+    b.append(pixelCharSVG(f)); b.title="character "+(v+1);
+    b.setAttribute("aria-pressed", (curVar===v)?"true":"false");
+    b.onclick=()=>{ saveProfile(id,{variant:v}); openSheet(r); render(); }; sp.append(b); }
   const sw=document.getElementById("cSwatches"); sw.textContent="";
   SWATCHES.forEach(c=>{ const b=document.createElement("button"); b.style.background=c;
     b.setAttribute("aria-pressed",(prof.accent===c)?"true":"false");
