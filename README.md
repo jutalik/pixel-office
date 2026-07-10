@@ -7,8 +7,18 @@ agent, subagent, LLM call, and workflow shows up as an **avatar** that moves bet
 rooms and shows what it's doing — driven entirely by telemetry from the tools you
 already use (Claude Code, Codex, Grok, Gemini, and more).
 
-> **Status: early / design phase.** This repo currently holds the architecture,
-> decisions, and build roadmap. Implementation starts at Phase 0 — see [`ROADMAP.md`](ROADMAP.md).
+> **Status: Phase 0 shipped.** The telemetry contract is frozen as code
+> (`pixel_office/telemetry/`), the deterministic reducer passes golden replay tests, and
+> `po doctor` prints this machine's capability matrix. Phase 1a (first live avatar) is next —
+> see [`ROADMAP.md`](ROADMAP.md).
+
+## Quickstart
+
+```bash
+pip install -e ".[dev]"
+po doctor        # which CLIs are installed, hook-capable, and tailable
+pytest -q        # golden replay + contract invariants
+```
 
 ## The vision
 

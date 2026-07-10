@@ -13,15 +13,18 @@ build/
 *.tsbuildinfo
 
 # Local state / data (never commit runtime state or secrets)
+# NOTE: anchored to the repo root so a future in-package pixel_office/data/
+# or committed test fixtures are never silently ignored.
 *.db
 *.sqlite
 *.sqlite3
+!tests/fixtures/**
 .env
 .env.*
 *.log
 .po/
-data/
-snapshots/
+/data/
+/snapshots/
 
 # OS / editor
 .DS_Store

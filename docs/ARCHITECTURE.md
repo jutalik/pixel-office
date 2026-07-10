@@ -19,13 +19,14 @@ core/  (one process, four isolated failure domains, separate write paths)
 ├── control/     privileged actions (deploy/spend/approvals): fails CLOSED, audited, token-gated
 └── dashboard/   serves the office view + the WebSocket feed
 overlay/  (optional, PO_OVERLAY=off) the pixel office: DOM/CSS avatars, honesty-locked
-tooling/  po doctor · po repair · CLI adapters (install→detect→observe→uninstall)
+tooling/  po doctor · po hooks install/uninstall (Phase 2) · CLI adapters (install→detect→observe→uninstall)
 ```
 
 ## Telemetry: two tiers, one reducer
 
-Activity is captured two ways, and **both feed a single deterministic reducer** (so hooks and the
-tailer can never disagree about what an avatar is doing):
+Activity is captured two ways, and **both feed a single deterministic reducer** that keeps one
+frontier per (agent, source) and merges them by source precedence within a freshness grace window —
+so mixed hook/tailer input always yields one honest answer per avatar:
 
 1. **Primary — hooks (opt-in upgrade).** A loopback HTTP receiver + per-CLI managed hook installers.
    CLIs POST lifecycle events; the receiver returns immediately (fail-open) and normalizes them.
@@ -33,6 +34,11 @@ tailer can never disagree about what an avatar is doing):
 2. **Fallback — session-file tailer (default).** Byte-offset incremental tailing of each CLI's own
    session logs. Works for any CLI, needs no install → **zero first-run failure**. Lower fidelity
    (retrospective pulses), so it is the default that "always works," with hooks as a one-click upgrade.
+
+**Fidelity caveat (measured):** Claude's transcript is *silent* while the agent waits on a
+permission/question prompt, so tailer-only mode can never show `waiting` — the "this agent needs
+me" signal arrives with the hooks upgrade. The UI and `po doctor` say so explicitly instead of
+letting a blocked agent read as `working`.
 
 Avatar state is **server-derived** (a pure view function, no coordinate database) and pushed over a
 WebSocket as **semantic deltas** (a state enum + destination, never raw coordinates). See

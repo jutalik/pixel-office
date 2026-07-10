@@ -11,8 +11,10 @@ Phase 1 was split into a minimal demo (1a) and a hardening pass (1b).
 
 ## Cross-cutting invariants (hold from Phase 0 onward)
 - Append-only, versioned raw events; a **deterministic reducer** with replay/golden tests.
-- Durable identity, not pane-id: `host_id, cli, session_id, agent_id, parent_agent_id`, monotonic `seq`.
-- Hook/tailer **deduplication + precedence**; explicit `unknown | stale | disconnected` states.
+- Durable identity, not pane-id: `host_id, cli, session_id, agent_id, parent_agent_id`; `seq` is
+  minted per **source stream** `(host, cli, session, source)` — sources never share a numbering.
+- Cross-source merge via per-(agent, source) **frontiers** + grace window (hook > tailer);
+  explicit `live | unknown | stale | disconnected` liveness states.
 - Telemetry **fails open**; privileged actions **fail closed** (audit-before-action, single-use tokens).
 - Loopback-only + bearer auth by default; CSP + escaping for any CLI-originated text.
 - **Never record** prompts, tool arguments, secrets, or file contents by default (metadata only).
@@ -21,9 +23,12 @@ Phase 1 was split into a minimal demo (1a) and a hardening pass (1b).
 ## Phase 0 — Contract & harness (freeze first)
 Define and freeze the telemetry event envelope, identity model, normalized state machine, reducer
 semantics, snapshot+delta transport, schema versioning, and security defaults. Ship a **replay
-harness** with recorded fixtures. Stubs for the 4-domain core (product / telemetry / control /
-dashboard), one SQLite in WAL. `po doctor` capability matrix.
+harness** with recorded fixtures and the `po doctor` capability matrix. (The product/control/
+dashboard domains are named in ARCHITECTURE and laid down from Phase 1a onward; SQLite/WAL arrives
+with the Phase 1b store.)
 **Exit:** contract documented + reducer passes golden replay tests; `po doctor` prints the matrix.
+✅ **Shipped 2026-07-10** (55 tests green), then hardened by a 30-agent adversarial review — see
+`docs/DECISIONS.md` "Phase 0 exhaustive review".
 
 ## Phase 1a — Minimal first-avatar slice
 One Claude session → tailer → normalized event → single in-memory state → one browser client →
