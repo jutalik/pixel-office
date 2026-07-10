@@ -22,6 +22,7 @@ class Adapter:
     emitted_kinds: frozenset = frozenset()
 
     # --- detection ------------------------------------------------------------
+    is_cli: bool = True                            # False = pseudo-source (e.g. the org runtime)
     bin_name: Optional[str] = None                 # PATH name (defaults to `name`)
     extra_bin_dirs: Tuple[Path, ...] = ()
     env_home: Optional[str] = None                 # home-override env var, if any

@@ -84,6 +84,8 @@ def _count(pattern: Optional[str]) -> Optional[int]:
 def detect_clis() -> dict:
     out = {}
     for a in registry.all_adapters():
+        if not a.is_cli:
+            continue  # pseudo-sources (the org runtime) aren't installable CLIs
         binpath = which(a)
         home = resolve_home(a)
         pattern = session_pattern(a)

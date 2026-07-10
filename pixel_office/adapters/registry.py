@@ -12,11 +12,12 @@ from .agy import ADAPTER as _agy
 from .base import Adapter
 from .claude import ADAPTER as _claude
 from .codex import ADAPTER as _codex
+from .company import ADAPTER as _company
 from .grok import ADAPTER as _grok
 from .hermes import ADAPTER as _hermes
 
-# Registration order = display order in `po doctor`.
-_ALL = (_claude, _codex, _grok, _agy, _hermes)
+# Registration order = display order in `po doctor` (CLIs first; company last).
+_ALL = (_claude, _codex, _grok, _agy, _hermes, _company)
 ADAPTERS: Dict[str, Adapter] = {a.name: a for a in _ALL}
 
 
