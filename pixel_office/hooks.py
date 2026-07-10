@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shlex
 import stat
 import time
 from pathlib import Path
 from typing import Optional, Tuple
+
+WINDOWS = os.name == "nt"
 
 PO_DIR = Path(os.environ.get("PO_STATE_DIR", "")).parent if os.environ.get("PO_STATE_DIR") \
     else Path.home() / ".pixel-office"
@@ -58,10 +61,31 @@ def claude_settings_path() -> Path:
 
 def write_endpoint_file(port: int, token: str) -> None:
     ENDPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(ENDPOINT_FILE.parent, 0o700)  # private dir (token lives inside)
+    except OSError:
+        pass
     tmp = ENDPOINT_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"port": port, "token": token, "written_at": time.time()}))
+    data = json.dumps({"port": port, "token": token, "written_at": time.time()}).encode()
+    # create the temp file already 0600 so the token is never group/other-readable
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)  # force 0600 even if a stale permissive .tmp existed
+        os.write(fd, data)
+    finally:
+        os.close(fd)
     os.replace(tmp, ENDPOINT_FILE)
     os.chmod(ENDPOINT_FILE, stat.S_IRUSR | stat.S_IWUSR)  # 0600 — token inside
+
+
+def remove_endpoint_file() -> None:
+    """Delete the endpoint file so a stale port never drives hook POSTs to a
+    process that later rebinds it. Called on `po up` shutdown."""
+    try:
+        ENDPOINT_FILE.unlink()
+    except OSError:
+        pass
 
 
 def _write_script() -> None:
@@ -86,6 +110,8 @@ def _stat_token(path: Path):
 
 def _load_settings(path: Path) -> Tuple[dict, object]:
     token = _stat_token(path)
+    if path.is_dir():
+        raise RuntimeError(f"{path} is a directory, not a settings file — remove it and re-run.")
     if not path.exists():
         return {}, token
     try:
@@ -109,6 +135,12 @@ def _save_settings(path: Path, settings: dict, expected_token) -> None:
 
 
 def install() -> str:
+    if WINDOWS:
+        # the managed hook is a POSIX /bin/sh script; native Windows Claude Code
+        # can't run it, so live mode would silently never fire. Be honest.
+        raise RuntimeError(
+            "live-mode hooks require macOS/Linux/WSL (the hook is a /bin/sh script); "
+            "tailer mode still works on native Windows — just run `po up`.")
     _write_script()
     path = claude_settings_path()
     settings, token = _load_settings(path)

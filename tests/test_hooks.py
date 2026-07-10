@@ -148,3 +148,39 @@ def test_factory_rejects_unknown_or_incomplete():
     assert f.from_payload("claude", _payload(hook_event_name="Bogus")) is None
     assert f.from_payload("claude", {"hook_event_name": "Stop"}) is None
     assert f.from_payload("claude", "junk") is None
+
+
+def test_factory_mints_notification_subtype_composite():
+    from pixel_office.telemetry.normalize import normalize
+    f = HookEventFactory("h1")
+    # an idle/completed notification must become 'done', not a false 'waiting'
+    ev = f.from_payload("claude", {"hook_event_name": "Notification", "session_id": "s1",
+                                   "notification_type": "idle_prompt"})
+    assert ev.kind == "Notification:idle_prompt"
+    assert normalize("claude", ev.kind) == "done"
+    # an unknown subtype stays bare Notification (-> waiting)
+    ev2 = f.from_payload("claude", {"hook_event_name": "Notification", "session_id": "s1",
+                                    "notification_type": "mystery"})
+    assert ev2.kind == "Notification"
+
+
+def test_windows_install_refuses_with_clear_message(monkeypatch, hook_env):
+    monkeypatch.setattr(hooks, "WINDOWS", True)
+    with pytest.raises(RuntimeError, match="macOS/Linux/WSL"):
+        hooks.install()
+
+
+def test_remove_endpoint_file(hook_env):
+    hooks.write_endpoint_file(7717, "tok")
+    assert hooks.ENDPOINT_FILE.exists()
+    hooks.remove_endpoint_file()
+    assert not hooks.ENDPOINT_FILE.exists()
+    hooks.remove_endpoint_file()  # idempotent, no raise
+
+
+def test_settings_dir_gives_distinct_error(hook_env):
+    path = hooks.claude_settings_path()
+    path.parent.mkdir(parents=True)
+    path.mkdir()  # settings.json is a directory
+    with pytest.raises(RuntimeError, match="is a directory"):
+        hooks.install()

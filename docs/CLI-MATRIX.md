@@ -5,11 +5,19 @@ What Pixel Office knows about each CLI's telemetry, and how verified it is.
 
 | CLI | binary | session store | tailer states | hooks | status |
 |---|---|---|---|---|---|
-| **claude** | `claude` | `~/.claude/projects/*/*.jsonl` (JSONL) | working, done | settings.json | ✅ verified |
-| **codex** | `codex` | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (JSONL) | working, done | config | ✅ verified |
-| **grok** | `~/.grok/bin/grok` | `~/.grok/sessions/<enc-cwd>/<uuid>/events.jsonl` (JSONL) | working, **waiting**, done | config | ✅ verified |
-| **agy** (Antigravity) | `~/.local/bin/agy` | `~/.gemini/antigravity-cli/*.db` (**SQLite**) | — | settings | 🟡 provisional |
-| **hermes** | `hermes` | — (no session store found) | — | plugin (`~/.hermes/plugins/`) | 🟡 hooks-only |
+| CLI | tailer (session store) | tailer states | hooks (install + observe) | status |
+|---|---|---|---|---|
+| **claude** | `~/.claude/projects/*/*.jsonl` (JSONL) ✅ | working, done | ✅ **shipped** (`po hooks install`) → adds waiting/blocked/subagents | ✅ verified |
+| **codex** | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (JSONL) ✅ | working, done | 🟡 planned (CLI is hook-capable; no PO installer/normalize yet) | tailer verified |
+| **grok** | `~/.grok/sessions/<enc-cwd>/<uuid>/events.jsonl` (JSONL) ✅ | working, **waiting**, done | 🟡 planned | tailer verified |
+| **agy** (Antigravity) | `~/.gemini/antigravity-cli/*.db` (**SQLite**) 🟡 unverified mapper | — | 🟡 planned | provisional |
+| **hermes** | — (no session store found) | — | 🟡 planned (plugin) | hooks-only, planned |
+
+> **Hooks are shipped for Claude only.** `po hooks install` writes a managed hook
+> into Claude's `settings.json`, and the receiver understands Claude's hook event
+> names. Other CLIs are hook-*capable* but Pixel Office has no installer or
+> hook-event normalization for them yet, so `po doctor` reports the `hooks`
+> capability for Claude only (not the others).
 
 ## Notes
 

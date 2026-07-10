@@ -71,7 +71,11 @@ def _cmd_up(args) -> int:
     po_hooks.write_endpoint_file(args.port, hook_token)  # hooks find us here
     hooks_state = "on" if po_hooks.status().get("installed") else "off — `po hooks install` for live mode"
     print(f"pixel office → http://127.0.0.1:{args.port}   (watching {watching}; hooks {hooks_state})")
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    finally:
+        # never leave a stale endpoint file pointing at a now-defunct port
+        po_hooks.remove_endpoint_file()
     return 0
 
 
@@ -129,7 +133,7 @@ def _cmd_new(args) -> int:
             return 1
     try:
         project = builder.build(manifest, root)
-    except (FileExistsError, ValueError) as e:
+    except (ValueError, OSError) as e:  # OSError covers Permission/IsADirectory/etc.
         print(f"po new: {e}", file=sys.stderr)
         return 1
     print(f"\ncreated {project}")

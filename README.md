@@ -5,9 +5,10 @@
 Pixel Office turns your AI coding CLIs into a live, game-like office: every running
 agent, subagent, LLM call, and workflow shows up as an **avatar** that moves between
 rooms and shows what it's doing — driven entirely by telemetry from the tools you
-already use (Claude Code, Codex, Grok, Gemini, and more).
+already use (Claude Code, Codex, and Grok today; more via one-file adapters — see
+[`docs/CLI-MATRIX.md`](docs/CLI-MATRIX.md)).
 
-> **Status: the roadmap (Phases 0–7) is built** — 137 tests green, CI green. `po up` watches your
+> **Status: the roadmap (Phases 0–7) is built** — full test suite green (see CI). `po up` watches your
 > Claude / Codex / Grok sessions and renders each agent as an avatar that moves between team rooms;
 > `po hooks install` upgrades to live per-event updates; `po new` scaffolds an instrumented product
 > from a short conversation; `po deploy` picks a promotion path; and the dashboard is an installable,

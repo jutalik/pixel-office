@@ -21,6 +21,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
+from urllib.request import pathname2url
 
 from .contract import RawEvent
 
@@ -71,6 +72,7 @@ class SqliteSessionSource:
         self.max_rows = max_rows
         self._rowid = 0        # resume cursor (last seen rowid)
         self._watermark = 0    # last minted seq (forward-only)
+        self._broken = False   # disabled after a query that can't advance the cursor
 
     def _connect(self) -> Optional[sqlite3.Connection]:
         if not self.db_path.exists():
@@ -79,7 +81,9 @@ class SqliteSessionSource:
             # mode=ro: read-only (never locks the live writer). NOT immutable=1 —
             # the DB IS changing, and immutable would let SQLite miss WAL updates
             # or return inconsistent reads.
-            uri = f"file:{self.db_path}?mode=ro"
+            # pathname2url percent-encodes backslashes/drive-letters/unicode so
+            # the file: URI is valid on Windows and POSIX alike
+            uri = "file:" + pathname2url(str(self.db_path)) + "?mode=ro"
             conn = sqlite3.connect(uri, uri=True, timeout=0.5)
             conn.row_factory = sqlite3.Row
             return conn
@@ -87,6 +91,8 @@ class SqliteSessionSource:
             return None
 
     def poll(self) -> List[RawEvent]:
+        if self._broken:
+            return []  # a prior poll proved the query can't advance — stay off
         conn = self._connect()
         if conn is None:
             return []
@@ -97,12 +103,13 @@ class SqliteSessionSource:
         except sqlite3.Error:
             conn.close()
             return []
+        prev_rowid = self._rowid
         for row in rows:
             try:
                 rowid = row["rowid"] if "rowid" in row.keys() else row[0]
                 self._rowid = max(self._rowid, int(rowid))
             except Exception:
-                continue  # can't read the cursor — skip this row
+                pass  # can't read this row's cursor; other rows still advance it
             try:
                 parsed = self.mapper(row)
                 if parsed is None:
@@ -118,6 +125,11 @@ class SqliteSessionSource:
             except Exception:
                 continue  # mapper error / bad tuple / bad event — never escapes poll()
         conn.close()
+        # rows returned but the cursor didn't advance ⇒ the query exposes no
+        # readable ascending rowid (a misconfigured mapper). Disable rather than
+        # re-scanning the same rows forever (fail-open: no events, no crash).
+        if rows and self._rowid == prev_rowid:
+            self._broken = True
         return events
 
     def state_dict(self) -> dict:

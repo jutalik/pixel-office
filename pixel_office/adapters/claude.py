@@ -49,5 +49,6 @@ ADAPTER = Adapter(
     session_glob="projects/*/*.jsonl",
     parse_line=parse_line,
     hooks_capable=True,
+    hooks_installable=True,   # `po hooks install` + the claude hook-event table
     hook_kind="settings",
 )

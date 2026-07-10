@@ -10,17 +10,22 @@ directions:
 - **Grok:** make the pixel office a pure client-side overlay you can disable with one env var, so
   the product ships even without any game code.
 
-Same conclusion: **separate the durable core from the delight layer.**
+Same conclusion: **separate the durable core from the delight layer.** The four
+domains below are a conceptual model of the responsibilities; the actual module
+layout (right column) realizes them without a literal `core/` package.
 
-```
-core/  (one process, four isolated failure domains, separate write paths)
-├── product/     the user's actual product (FastAPI + SQLite): /health /ready, KPI surface
-├── telemetry/   event ingest (hooks + tailer) → reducer → state; fails OPEN
-├── control/     privileged actions (deploy/spend/approvals): fails CLOSED, audited, token-gated
-└── dashboard/   serves the office view + the WebSocket feed
-overlay/  (optional, PO_OVERLAY=off) the pixel office: DOM/CSS avatars, honesty-locked
-tooling/  po doctor · po hooks install/uninstall (Phase 2) · CLI adapters (install→detect→observe→uninstall)
-```
+| domain (concept) | responsibility | where it lives in `pixel_office/` |
+|---|---|---|
+| **telemetry** | event ingest (hooks + tailer) → reducer → state; fails OPEN | `telemetry/` + `adapters/` (one descriptor per CLI) |
+| **control** | privileged actions (deploy/spend/approvals/budget): fails CLOSED, audited, token-gated | `control/` |
+| **dashboard** | serves the office view + the WebSocket feed | `server.py` |
+| **product** | the user's actual product (FastAPI + SQLite, instrumented) | a **scaffolded template** (`scaffold/`) rendered into the user's *new* project — not a module of this repo |
+| overlay (optional, `PO_OVERLAY=off`) | the pixel office: DOM/CSS avatars, honesty-locked | `static/` |
+| tooling | `po doctor` · `po hooks` · `po new` · `po deploy` | `doctor.py` · `hooks.py` · `cli.py` |
+
+Failure isolation is by discipline (telemetry fails open, control fails closed;
+the tailer/hook receiver never raise into the web loop), not by separate OS
+processes — this is a single local process.
 
 ## Telemetry: two tiers, one reducer
 

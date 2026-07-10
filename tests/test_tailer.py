@@ -84,6 +84,22 @@ def test_malformed_lines_fail_open(tmp_path):
     assert [e.kind for e in tailer.poll()] == ["UserPromptSubmit"]
 
 
+def test_oversized_record_does_not_wedge_tailer(tmp_path):
+    f = tmp_path / "t.jsonl"
+    huge = json.dumps({"type": "user", "timestamp": TS, "sessionId": "s1",
+                       "message": {"role": "user", "content": "x" * 20000}}) + "\n"
+    stop = json.dumps({"type": "assistant", "timestamp": TS, "sessionId": "s1",
+                       "message": {"role": "assistant", "stop_reason": "end_turn",
+                                   "content": [{"type": "text", "text": "done"}]}}) + "\n"
+    f.write_text(huge + stop)
+    tailer = TranscriptTailer(f, host_id="h1")
+    tailer.MAX_READ_BYTES = 4096  # smaller than the 20 KB record
+    kinds = []
+    for _ in range(30):
+        kinds += [e.kind for e in tailer.poll()]
+    assert "Stop" in kinds  # recovered past the oversized record instead of wedging
+
+
 def test_missing_file_yields_empty(tmp_path):
     tailer = TranscriptTailer(tmp_path / "nope.jsonl", host_id="h1")
     assert tailer.poll() == []

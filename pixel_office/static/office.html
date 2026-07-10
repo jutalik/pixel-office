@@ -141,7 +141,9 @@ function render(){
       if (rendered >= MAX_RENDER){ hidden++; continue; }
       rendered++;
       const av = document.createElement("div");
-      av.className = `avatar ${r.activity} ${r.liveness}` + (r.last_kind_meta ? " say":"");
+      // show a speech bubble for the states a human should notice
+      const say = (r.activity === "waiting" || r.activity === "blocked") ? " say" : "";
+      av.className = `avatar ${r.activity} ${r.liveness}${say}`;
       av.tabIndex = 0; av.setAttribute("role", "button");
       av.addEventListener("click", () => openSheet(r));
       av.addEventListener("keydown", (e) => { if (e.key === "Enter") openSheet(r); });

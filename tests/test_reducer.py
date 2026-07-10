@@ -79,6 +79,33 @@ def test_case_a_stale_tailer_never_overrides_hook_done():
         assert _activity(reduce_all(list(p))) == "done"
 
 
+def test_case_a_full_winning_frontier_is_order_invariant():
+    # lock the WHOLE winning frontier (source/seq/ts), not just activity
+    events = [
+        ev(1, "UserPromptSubmit", source="hook", ts="2026-07-10T00:00:01Z"),
+        ev(2, "Stop", source="hook", ts="2026-07-10T00:00:04Z"),
+        ev(5, "PreToolUse", source="tailer", ts="2026-07-10T00:00:03Z"),
+    ]
+    seen = set()
+    for p in itertools.permutations(events):
+        r = view(reduce_all(list(p)), datetime(2026, 7, 10, 0, 0, 5, tzinfo=timezone.utc))[0]
+        seen.add((r["activity"], r["last_source"], r["last_seq"], r["last_ts"]))
+    assert seen == {("done", "hook", 2, "2026-07-10T00:00:04Z")}
+
+
+def test_grace_window_inclusive_boundary():
+    # tailer 'done' at :10, hook 'working' at :20 — gap exactly DEFAULT_GRACE_S(10s).
+    # the inclusive `<= grace` means the tailer frontier stays eligible; hook wins
+    # by precedence since both are in-window. Order-invariant.
+    from pixel_office.telemetry.reducer import DEFAULT_GRACE_S
+    assert DEFAULT_GRACE_S == 10.0
+    a = ev(3, "TurnEnded" if False else "Stop", source="tailer", ts="2026-07-10T00:00:10Z")
+    b = ev(1, "PreToolUse", source="hook", ts="2026-07-10T00:00:20Z")
+    r1 = _activity(reduce_all([a, b]))
+    r2 = _activity(reduce_all([b, a]))
+    assert r1 == r2 == "working"  # both in-window at the boundary → hook precedence
+
+
 def test_hook_precedence_when_equally_fresh():
     tailer = ev(5, "PreToolUse", source="tailer", ts="2026-07-10T00:00:05Z")
     hook = ev(5, "PermissionRequest", source="hook", ts="2026-07-10T00:00:05Z")

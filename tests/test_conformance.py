@@ -33,6 +33,29 @@ def test_tailer_derivable_matches_emitted_kinds(a):
     assert set(a.tailer_derivable) == produced
 
 
+# meta must stay metadata: every adapter's emitted meta keys ⊆ this approved set
+APPROVED_META_KEYS = {"tool", "tool_count", "result_count", "agent_type"}
+
+_META_PROBES = {
+    "claude": {"type": "assistant", "timestamp": "2026-07-10T00:00:00Z", "sessionId": "s",
+               "message": {"role": "assistant", "stop_reason": "tool_use",
+                           "content": [{"type": "tool_use", "name": "Bash",
+                                        "input": {"command": "secret"}}]}},
+    "codex": {"timestamp": "2026-07-10T00:00:00Z", "type": "e",
+              "payload": {"type": "function_call", "name": "shell", "arguments": "secret"}},
+    "grok": {"type": "tool_started", "ts": "2026-07-10T00:00:00Z", "tool_name": "web_search"},
+}
+
+
+@pytest.mark.parametrize("cli,record", list(_META_PROBES.items()))
+def test_adapter_meta_keys_are_approved(cli, record):
+    parsed = registry.parser_for(cli)(record)
+    assert parsed is not None
+    meta = parsed[3]
+    assert set(meta) <= APPROVED_META_KEYS, f"{cli} emitted non-approved meta keys {set(meta)}"
+    assert "secret" not in str(meta)  # never carries content/args
+
+
 def test_provisional_adapters_are_honestly_unsupported():
     # agy (SQLite, unverified) and hermes (hooks-only) must not claim a tailer
     for name in ("agy", "hermes"):

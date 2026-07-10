@@ -68,12 +68,15 @@ parent=main, and the script exits 0 with the receiver down. `waiting`/`blocked` 
 states — are now reachable.
 
 ## Phase 3 — Multi-CLI adapters
-codex, grok, gemini behind one contract: `install → detect → observe → uninstall`. Hook-capable →
-hooks; hook-less → tailer. **Reuses the contract + conformance tests.**
-**Exit:** 3+ CLIs appear as avatars (mixed hook/tailer); a missing CLI never blocks bootstrap.
+codex, grok, agy behind one contract: `install → detect → observe → uninstall`. **Reuses the
+contract + conformance tests.** (Tailer adapters shipped for codex+grok; hooks remain Claude-only —
+per-CLI hook installers are future work, see docs/CLI-MATRIX.md.)
+**Exit:** 3+ CLIs appear as avatars (tailer); a missing CLI never blocks bootstrap.
 ✅ **codex + grok shipped 2026-07-10** (110 tests green). One office now shows claude + codex +
-grok avatars together (live-verified: 70 real agents; controlled screenshot of all three with
-mixed working/done/**waiting**). Each adapter is a ~30-line `parse_line` reusing the frozen reducer.
+grok avatars together (live-verified: 70 distinct top-level SESSIONS across the three CLIs — one
+`main` avatar per session in tailer mode; per-subagent avatars require hooks, Claude only today).
+Controlled screenshot of all three with working/done/**waiting**. Each adapter is a ~30-line
+`parse_line` reusing the frozen reducer.
 Findings that shaped it: grok's real signal is `events.jsonl` (structured, timestamped), NOT
 `chat_history.jsonl` (no timestamps) — and because grok logs `permission_requested`, it is the ONE
 CLI whose tailer reaches `waiting`. Per-CLI session-id fallback added (grok's file is always
@@ -86,7 +89,8 @@ Rooms, movement, speech bubbles; honesty-locked; LOD / FPS caps / pause-on-hidde
 **Exit:** pleasant office on low-spec hardware; env var disables all game code.
 ✅ **Shipped 2026-07-10** (111 tests green). Per-CLI team rooms; avatars glide between rooms on
 state change (CSS transform, no canvas); bob/wave animations gated behind `prefers-reduced-motion`;
-honest speech bubbles from metadata only (never prompt text); LOD cap (MAX_RENDER=80 + "+N more");
+honest speech bubbles (shown for the actionable `waiting`/`blocked` states, derived from state —
+never prompt text); LOD cap (MAX_RENDER=80 + "+N more");
 pause-on-hidden. `PO_OVERLAY=off` serves a plain table on the *same* ws feed. Screenshot verified
 (3 rooms, mixed focus/wrapped/needs-you).
 

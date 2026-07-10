@@ -59,6 +59,28 @@ def test_restart_neither_reemits_nor_breaks_forward_seq(tmp_path):
     assert again[0].seq > first[0].seq  # forward-only across restarts
 
 
+def test_aged_out_tailer_state_is_preserved_on_disk(tmp_path):
+    import glob
+    d = _sessions_dir(tmp_path)
+    (d / "a.jsonl").write_text(_line("sa"))
+    (d / "b.jsonl").write_text(_line("sb"))
+    w = _watcher(tmp_path, max_files=2)
+    w.poll()
+    w.close()  # both persisted
+
+    # reopen watching only 1 file; the other ages out. Make the surviving tailer
+    # dirty so a persist runs — it must MERGE, not drop, the aged-out entry.
+    w2 = _watcher(tmp_path, max_files=1)
+    w2.poll()
+    live_path = next(iter(w2.tailers))
+    with open(live_path, "a") as fh:
+        fh.write(_line("more"))
+    w2.poll()  # dirty persist
+    state_file = glob.glob(str(tmp_path / "state" / "watch-*.json"))[0]
+    state = json.loads(open(state_file).read())
+    assert len(state) == 2  # aged-out tailer's cursor survived (no re-emit on return)
+
+
 def test_corrupt_state_file_fails_open(tmp_path):
     d = _sessions_dir(tmp_path)
     (d / "a.jsonl").write_text(_line("sess-a"))

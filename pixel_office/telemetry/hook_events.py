@@ -24,6 +24,13 @@ KNOWN_EVENTS = frozenset({
     "SessionEnd",
 })
 
+# Notification subtypes the normalize table understands (see adapters/claude.py).
+KNOWN_COMPOSITES = frozenset({
+    "Notification:permission_prompt", "Notification:agent_needs_input",
+    "Notification:elicitation_dialog", "Notification:idle_prompt",
+    "Notification:agent_completed",
+})
+
 
 class HookEventFactory:
     def __init__(self, host_id: str):
@@ -46,6 +53,12 @@ class HookEventFactory:
         kind = str(name)
         if kind == "PreToolUse" and tool == "AskUserQuestion":
             kind = "AskUserQuestion"  # composite kind (contract §3)
+        elif kind == "Notification":
+            # mint Notification:<subtype> so idle/completed map to 'done', not
+            # a false 'waiting' (contract §3). Unknown subtypes stay bare.
+            subtype = payload.get("notification_type") or payload.get("subtype")
+            if subtype and f"Notification:{subtype}" in KNOWN_COMPOSITES:
+                kind = f"Notification:{subtype}"
         agent_id = str(payload.get("agent_id") or "main")
         parent = "main" if agent_id != "main" else None
         meta = {}

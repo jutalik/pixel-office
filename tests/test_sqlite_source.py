@@ -99,6 +99,18 @@ def test_bad_mapper_shape_fails_open(tmp_path):
     assert src.poll() == []          # no crash — bad tuples skipped
 
 
+def test_unadvancing_query_disables_instead_of_looping(tmp_path):
+    # a query whose rows expose no readable rowid must disable the source, not
+    # re-scan the same rows every poll forever
+    db = tmp_path / "c.db"
+    _make_db(db, [(TS, "PreToolUse", "s1"), (TS, "Stop", "s1")])
+    bad_query = "SELECT ts, kind, sess FROM events"  # no rowid, no watermark filter
+    src = SqliteSessionSource(db, host_id="h1", cli="claude", query=bad_query, mapper=_map)
+    src.poll()
+    assert src._broken is True
+    assert src.poll() == []  # stays off, no hot loop
+
+
 def test_mapper_raising_fails_open(tmp_path):
     db = tmp_path / "c.db"
     _make_db(db, [(TS, "PreToolUse", "s1")])

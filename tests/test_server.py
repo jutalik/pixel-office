@@ -98,6 +98,56 @@ def test_hook_receiver_auth_and_ingest(transcript):
         assert rows[0]["activity"] == "waiting" and rows[0]["last_source"] == "hook"
 
 
+def test_ws_client_receives_delta_frame_end_to_end(transcript):
+    app = create_app([transcript], hook_token="tok")
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/office") as ws:
+            assert ws.receive_json()["type"] == "snapshot"
+            client.post("/hook/claude", json={"hook_event_name": "PermissionRequest",
+                                              "session_id": "sess-1"},
+                        headers={"x-po-hook-token": "tok"})
+            delta = ws.receive_json()          # the PUSH path, not tick_sync()
+            assert delta["type"] == "delta"
+            assert delta["rows"][0]["activity"] == "waiting"
+            assert delta["rows"][0]["last_source"] == "hook"
+
+
+def test_ws_rejects_foreign_origin(transcript):
+    app = create_app([transcript])
+    with TestClient(app) as client:
+        with pytest.raises(Exception):  # 1008 close -> WebSocketDisconnect
+            with client.websocket_connect("/ws/office",
+                                          headers={"origin": "https://evil.example"}) as ws:
+                ws.receive_json()
+        # a local origin is fine
+        with client.websocket_connect("/ws/office",
+                                      headers={"origin": "http://127.0.0.1:7717"}) as ws:
+            assert ws.receive_json()["type"] == "snapshot"
+
+
+def test_broadcast_survives_client_set_mutation_midway():
+    import asyncio
+    from pixel_office.server import OfficeHub
+
+    hub = OfficeHub([])
+
+    class FakeWS:
+        def __init__(self, on_send=None):
+            self.on_send, self.got = on_send, []
+
+        async def send_text(self, m):
+            self.got.append(m)
+            if self.on_send:
+                self.on_send()
+
+    late = FakeWS()
+    a = FakeWS(on_send=lambda: hub.clients.add(late))  # mutate set mid-iteration
+    b = FakeWS()
+    hub.clients.update({a, b})
+    asyncio.run(hub._broadcast({"type": "delta", "rows": []}))  # must not raise
+    assert a.got and b.got  # original clients still delivered
+
+
 def test_hook_receiver_fails_open_on_garbage(transcript):
     app = create_app([transcript], hook_token="tok")
     with TestClient(app) as client:

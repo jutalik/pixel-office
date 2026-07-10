@@ -6,6 +6,7 @@ non-empty existing dir (never clobbers a user's work); paths are contained
 """
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Dict
 
@@ -44,11 +45,29 @@ def build(m: Manifest, root: Path) -> Path:
         raise ValueError("refusing to write outside the target root")
     if project.exists() and any(project.iterdir()):
         raise FileExistsError(f"{project} exists and is not empty — refusing to overwrite")
+    pre_existing = project.exists()
     files = plan(m)
-    for rel, content in files.items():
-        dest = (project / rel).resolve()
-        if root.resolve() not in dest.parents:
-            raise ValueError(f"path escapes project root: {rel}")
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content)
+    try:
+        for rel, content in files.items():
+            dest = (project / rel).resolve()
+            if root.resolve() not in dest.parents:
+                raise ValueError(f"path escapes project root: {rel}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content)
+    except Exception:
+        # clean up our own partial output so a retry isn't blocked. The guard
+        # above guarantees the dir was empty, so restoring it to empty (or
+        # removing it if we created it) only ever removes po's own writes.
+        if pre_existing:
+            for child in list(project.iterdir()):
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    try:
+                        child.unlink()
+                    except OSError:
+                        pass
+        else:
+            shutil.rmtree(project, ignore_errors=True)
+        raise
     return project

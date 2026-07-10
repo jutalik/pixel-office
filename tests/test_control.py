@@ -59,8 +59,11 @@ def test_expiry_boundary_is_inclusive():
     assert store.approve(appr.token, now=10) is False       # exactly at expiry → denied
     appr2 = store.request("deploy", "svc", "deploy", now=0)
     store.approve(appr2.token, now=5)
-    assert store.claim(appr2.token, now=10) is None         # <= now
-    assert store.claim(appr2.token, now=9) is None or True   # (already used above path)
+    assert store.claim(appr2.token, now=10) is None         # claim exactly at expiry → denied
+    # a fresh approval claimed just inside TTL DOES succeed (real check, not vacuous)
+    appr3 = store.request("deploy", "svc", "deploy", now=0)
+    store.approve(appr3.token, now=5)
+    assert store.claim(appr3.token, now=9) is not None
 
 
 def test_expired_approval_is_denied():

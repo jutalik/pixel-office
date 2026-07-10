@@ -88,6 +88,24 @@ def test_builder_refuses_to_overwrite_nonempty(tmp_path):
     assert (tmp_path / "mednote" / "keep.txt").read_text() == "user work"
 
 
+def test_builder_cleans_up_partial_output_on_failure(tmp_path, monkeypatch):
+    from pathlib import Path
+    calls = {"n": 0}
+    orig = Path.write_text
+
+    def flaky(self, content, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 2:               # fail partway through the build
+            raise OSError("disk full")
+        return orig(self, content, *a, **k)
+
+    monkeypatch.setattr(Path, "write_text", flaky)
+    m = Manifest.from_dict({"what": "x", "name": "proj"})
+    with pytest.raises(OSError):
+        builder.build(m, tmp_path)
+    assert not (tmp_path / "proj").exists()   # partial dir removed → retry not blocked
+
+
 def test_scaffolded_backend_smoke_passes(tmp_path):
     # the instrumentation surface of a freshly scaffolded product must answer
     pytest.importorskip("fastapi")

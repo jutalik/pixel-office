@@ -6,7 +6,9 @@ Shape (locked in DECISIONS.md, extended from the pixel-office supervisor manifes
     benchmarks — reference/competitor projects (feed the agents' self-research)
     niche      — target audience / segment
     stack      — one of the instrumentation-complete templates
-    roles      — the initial team (title + count) -> avatars from birth
+    roles      — the initial team (title + count), recorded in the manifest and
+                 charter for the team's own planning. NOTE: roles are NOT rendered
+                 as avatars — avatars come only from real CLI session telemetry.
 
 The manifest is `trusted=False` by default (came from a model or an untrusted
 user): capability-shaped fields are sanitized, values are bounded, and NOTHING

@@ -22,6 +22,9 @@ from .adapters import registry
 from .adapters.base import Adapter
 
 _TRANSCRIPT_COUNT_CAP = 500
+# The managed hook is a POSIX /bin/sh script, so hooks only run on macOS/Linux/WSL.
+# (`hooks.install()` refuses native Windows.) Don't advertise `hooks` there.
+_HOOKS_PLATFORM_OK = os.name != "nt"
 
 
 def which(adapter: Adapter) -> Optional[str]:
@@ -89,12 +92,13 @@ def detect_clis() -> dict:
         if binpath:
             if a.has_verified_tailer:
                 caps.append("tailer")
-            if a.hooks_capable:
+            if a.hooks_installable and _HOOKS_PLATFORM_OK:   # runnable hooks only
                 caps.append("hooks")
         out[a.name] = {
             "available": binpath is not None,
             "path": binpath,
             "hooks_capable": a.hooks_capable,
+            "hooks_installable": a.hooks_installable,
             "hook_kind": a.hook_kind,
             "normalize_supported": a.normalize_supported,
             "session_kind": a.session_kind if a.session_kind != "none" else None,

@@ -102,7 +102,13 @@ class TranscriptTailer:
         self._sig = (st.st_ino, st.st_dev)
         last_nl = chunk.rfind(b"\n")
         if last_nl < 0:
-            return []  # no complete record yet
+            # A record larger than MAX_READ_BYTES is in flight. If there is more
+            # data past this full chunk, the record is provably over-cap — scan
+            # the cursor forward past it (dropping the oversized record, fail-open)
+            # so the tailer recovers instead of re-reading the same bytes forever.
+            if len(chunk) == self.MAX_READ_BYTES and (size - self._cursor) > self.MAX_READ_BYTES:
+                self._cursor += len(chunk)
+            return []  # otherwise: a normal partial record — wait for its newline
         consumed = chunk[:last_nl + 1]
         if self._cursor == 0:
             self._head = consumed[:self._HEAD_LEN]  # fingerprint for rewrite detection

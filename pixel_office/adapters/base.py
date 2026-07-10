@@ -37,7 +37,11 @@ class Adapter:
     session_id_from_path: Optional[SessionIdFn] = None
 
     # --- hooks ----------------------------------------------------------------
-    hooks_capable: bool = False
+    hooks_capable: bool = False                    # the CLI itself supports hooks
+    #: Pixel Office can actually install AND observe hooks for this CLI TODAY
+    #: (an installer exists + its hook event names are in `kinds`). Only Claude
+    #: so far — codex/grok/agy hooks are planned, not shipped.
+    hooks_installable: bool = False
     hook_kind: str = "settings"                    # settings | config | plugin
 
     # ---- derived -------------------------------------------------------------

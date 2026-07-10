@@ -74,7 +74,10 @@ class SessionWatcher:
         now = time.monotonic()
         if not force and now - self._last_persist < PERSIST_INTERVAL_S:
             return
-        payload = {path: t.state_dict() for path, t in self.tailers.items()}
+        # merge over the existing on-disk state so an aged-out tailer (removed
+        # from self.tailers) keeps its last cursor and re-attaches at the right
+        # offset when it returns — never re-emitting its history.
+        payload = {**self._load_states(), **{p: t.state_dict() for p, t in self.tailers.items()}}
         tmp = sf.with_suffix(".tmp")
         try:
             tmp.write_text(json.dumps(payload))

@@ -8,9 +8,11 @@
   transitions (live -> stale -> disconnected) push without new events.
 """
 import asyncio
+import hmac
 import json
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -27,6 +29,21 @@ from .telemetry.tailer import TranscriptTailer
 
 POLL_INTERVAL_S = 0.5
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+def _origin_is_local(origin: Optional[str]) -> bool:
+    # No Origin => a native/non-browser client (curl, the PWA shell) — allowed.
+    # A browser sends Origin; only same-machine origins may read the office, so a
+    # foreign page the user visits cannot open the ws cross-origin (SOP exempts WS).
+    if not origin:
+        return True
+    try:
+        return urlsplit(origin).hostname in _LOCAL_HOSTS
+    except ValueError:
+        return False
 
 
 def _overlay_enabled() -> bool:
@@ -82,22 +99,29 @@ class OfficeHub:
         return changed
 
     async def _loop(self):
+        pending: dict = {}   # coalesced changed rows (by key, latest wins)
         while True:
             try:
-                changed = self.tick_sync()
-                if changed and self.clients:
-                    await self._broadcast({"type": "delta", "rows": changed})
+                for r in self.tick_sync():
+                    pending[self._row_key(r)] = r
+                # while a capped-read source is still draining a big history,
+                # accumulate silently and flush ONE delta when it settles — no
+                # per-micro-tick message flood on cold start.
+                draining = self.last_batch_size > 0
+                if pending and not draining and self.clients:
+                    await self._broadcast({"type": "delta", "rows": list(pending.values())})
+                    pending = {}
             except Exception:
                 pass  # fail open — telemetry must never kill the dashboard
-            # while a capped-read source is still draining history (cold start on
-            # a big transcript), keep ticking back-to-back — sleep(0) still yields
-            # to the event loop so HTTP/ws stay responsive throughout.
+            # sleep(0) still yields to the event loop so HTTP/ws stay responsive
             await asyncio.sleep(0 if self.last_batch_size else POLL_INTERVAL_S)
 
     async def _broadcast(self, payload: dict):
         message = json.dumps(payload)
         dead = []
-        for ws in self.clients:
+        # snapshot the set: send_text awaits, so a client may connect/disconnect
+        # mid-broadcast and mutate self.clients — iterating a copy is immune.
+        for ws in list(self.clients):
             try:
                 await ws.send_text(message)
             except Exception:
@@ -170,7 +194,8 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
         # bearer check first; everything past auth FAILS OPEN with 204 — a hook
         # must never learn (or care) that the receiver had a bad day. A missing
         # token CONFIGURATION means the receiver is off (403), never open.
-        if not hook_token or request.headers.get("x-po-hook-token") != hook_token:
+        supplied = request.headers.get("x-po-hook-token", "")
+        if not hook_token or not hmac.compare_digest(supplied, hook_token):
             return Response(status_code=403)
         try:
             payload = json.loads(await request.body())
@@ -185,6 +210,10 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
 
     @app.websocket("/ws/office")
     async def ws_office(ws: WebSocket):
+        # block cross-origin browser reads (a foreign page targeting 127.0.0.1)
+        if not _origin_is_local(ws.headers.get("origin")):
+            await ws.close(code=1008)
+            return
         await ws.accept()
         hub.clients.add(ws)
         try:
