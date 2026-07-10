@@ -41,7 +41,13 @@
   .avatar { position:absolute; width:52px; text-align:center; transition:left .5s ease, top .5s ease, opacity .3s;
             image-rendering:pixelated; cursor:pointer; }
   .avatar:focus { outline:2px solid var(--done); border-radius:4px; }
-  .face { font-size:28px; line-height:1; }
+  .face { line-height:1; color:var(--ink); } .face svg { width:28px; height:28px; display:block; margin:0 auto; }
+  .working .face{color:var(--working)} .waiting .face{color:var(--waiting)}
+  .blocked .face{color:var(--blocked)} .done .face{color:var(--done)}
+  /* Lucide inline icons (no emoji) — inherit color via currentColor */
+  .ico { width:14px; height:14px; display:inline-block; vertical-align:-2px; flex:0 0 auto; }
+  h2 .ico { width:13px; height:13px; vertical-align:-1px; margin-right:6px; }
+  button .ico { margin-right:5px; } .card .ico, .okr .ico, .readonly .ico { margin-right:5px; }
   .nm { font-size:9px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .ring { height:3px; border-radius:2px; margin-top:2px; background:var(--dim); }
   .working .ring{background:var(--working)} .waiting .ring{background:var(--waiting)}
@@ -67,6 +73,7 @@
               border-radius:4px; margin-bottom:6px; cursor:pointer; }
   .needs li.waiting{border-color:#f9e2af55} .needs li.blocked{border-color:#f38ba855} .needs li.disconnected{border-color:#6c708655}
   .needs .why { font-size:10px; color:var(--dim); }
+  .needs .face { line-height:0; } .needs .ico { width:18px; height:18px; }
   .needs .none { color:var(--dim); border:none; cursor:default; }
   .locked { opacity:.7; }
   .okr { margin:6px 0; font-size:11px; } .okr .bar { height:6px; background:#313244; border-radius:3px; overflow:hidden; margin-top:3px; }
@@ -87,7 +94,8 @@
   .field { margin:10px 0; } .field label { display:block; font-size:10px; color:var(--dim); margin-bottom:4px; }
   .field input, .field textarea { width:100%; background:#1e1e2e; color:var(--ink); border:1px solid var(--line);
            border-radius:4px; padding:6px; font-family:inherit; font-size:12px; }
-  .sprites { display:flex; flex-wrap:wrap; gap:6px; } .sprites button { font-size:20px; padding:4px 6px; }
+  .sprites { display:flex; flex-wrap:wrap; gap:6px; } .sprites button { padding:5px 7px; line-height:0; }
+  .sprites .ico { width:20px; height:20px; margin:0; }
   .sprites button[aria-pressed="true"]{ outline:2px solid var(--done); }
   .swatches { display:flex; gap:6px; } .swatches button { width:22px; height:22px; border-radius:50%; padding:0; }
   .msg-state { font-size:10px; color:var(--dim); margin-top:6px; }
@@ -105,8 +113,8 @@
 <body>
 <header>
   <h1>PIXEL OFFICE</h1><span id="conn">connecting…</span><span class="grow"></span>
-  <button id="editBtn" aria-pressed="false" title="rearrange rooms / rename">✏️ edit</button>
-  <button id="ceoBtn" aria-pressed="true" title="CEO panel">👔 CEO</button>
+  <button id="editBtn" aria-pressed="false" title="rearrange rooms / rename"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>edit</button>
+  <button id="ceoBtn" aria-pressed="true" title="CEO panel"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>CEO</button>
 </header>
 <div id="banner"></div>
 <main>
@@ -117,18 +125,13 @@
     <h2>Needs you now</h2>
     <ul class="needs" id="needs"></ul>
     <h2>CEO desk</h2>
-    <div id="ceoDesk">
-      <div class="gate locked">✅ Approvals · <b>Requires Company Layer</b></div>
-      <div class="gate locked">🎯 OKRs / goals · <b>Requires Company Layer</b></div>
-      <div class="gate locked">🧑‍🤝‍🧑 Team &amp; HR · <b>Requires Company Layer</b></div>
-      <div class="gate locked">💰 Budget &amp; spend · <b>Requires Company Layer</b></div>
-    </div>
+    <div id="ceoDesk"></div>
     <p class="readonly">Live company data (approvals, goals) lights up when the Company Layer is
       running. Everything above the desk is real telemetry from your CLIs.</p>
   </aside>
 </main>
 <aside id="sheet" hidden>
-  <button class="close" id="sheetClose" aria-label="close">✕</button>
+  <button class="close" id="sheetClose" aria-label="close"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
   <h2 id="sheetTitle"></h2>
   <dl id="sheetBody"></dl>
   <div class="field"><label>Display name</label><input id="cName" maxlength="24"></div>
@@ -146,8 +149,50 @@
 "use strict";
 // ---- honesty note: characters are LIVE CLI SESSIONS (binding.type='cli_session').
 // Employees/chat-delivery/meetings/OKRs are gated until the Company Layer exists.
-const FACES = { working:"🧑‍💻", waiting:"🙋", blocked:"🆘", done:"😌" };
-const SPRITE_CHOICES = ["🧑‍💻","👩‍💻","🧑‍🔬","🧑‍🎨","🧑‍🚀","🕵️","🧙","🐱","🦊","🤖"];
+// ---- Lucide icons (MIT), inlined so the app stays no-build / offline / no-emoji.
+const SVGNS = "http://www.w3.org/2000/svg";
+const ICONS = {
+  user:"<path d='M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/>",
+  bot:"<path d='M12 8V4H8'/><rect width='16' height='12' x='4' y='8' rx='2'/><path d='M2 14h2'/><path d='M20 14h2'/><path d='M15 13v2'/><path d='M9 13v2'/>",
+  code:"<polyline points='16 18 22 12 16 6'/><polyline points='8 6 2 12 8 18'/>",
+  cpu:"<rect width='16' height='16' x='4' y='4' rx='2'/><rect width='6' height='6' x='9' y='9' rx='1'/><path d='M15 2v2'/><path d='M15 20v2'/><path d='M2 15h2'/><path d='M2 9h2'/><path d='M20 15h2'/><path d='M20 9h2'/><path d='M9 2v2'/><path d='M9 20v2'/>",
+  rocket:"<path d='M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z'/><path d='m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z'/><path d='M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0'/><path d='M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5'/>",
+  ghost:"<path d='M9 10h.01'/><path d='M15 10h.01'/><path d='M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z'/>",
+  cat:"<path d='M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z'/><path d='M8 14v.5'/><path d='M16 14v.5'/><path d='M11.25 16.25h1.5L12 17z'/>",
+  star:"<polygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/>",
+  smile:"<circle cx='12' cy='12' r='10'/><path d='M8 14s1.5 2 4 2 4-2 4-2'/><line x1='9' x2='9.01' y1='9' y2='9'/><line x1='15' x2='15.01' y1='9' y2='9'/>",
+  flame:"<path d='M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z'/>",
+  "circle-check":"<circle cx='12' cy='12' r='10'/><path d='m9 12 2 2 4-4'/>",
+  "circle-help":"<circle cx='12' cy='12' r='10'/><path d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'/><path d='M12 17h.01'/>",
+  "circle-alert":"<circle cx='12' cy='12' r='10'/><line x1='12' x2='12' y1='8' y2='12'/><line x1='12' x2='12.01' y1='16' y2='16'/>",
+  target:"<circle cx='12' cy='12' r='10'/><circle cx='12' cy='12' r='6'/><circle cx='12' cy='12' r='2'/>",
+  users:"<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.87'/><path d='M16 3.13a4 4 0 0 1 0 7.75'/>",
+  "user-minus":"<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><line x1='22' x2='16' y1='11' y2='11'/>",
+  "user-plus":"<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><line x1='19' x2='19' y1='8' y2='14'/><line x1='22' x2='16' y1='11' y2='11'/>",
+  banknote:"<rect width='20' height='12' x='2' y='6' rx='2'/><circle cx='12' cy='12' r='2'/><path d='M6 12h.01'/><path d='M18 12h.01'/>",
+  "trending-up":"<polyline points='22 7 13.5 15.5 8.5 10.5 2 17'/><polyline points='16 7 22 7 22 13'/>",
+  activity:"<path d='M22 12h-4l-3 9L9 3l-3 9H2'/>",
+  map:"<polygon points='3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21'/><line x1='9' x2='9' y1='3' y2='18'/><line x1='15' x2='15' y1='6' y2='21'/>",
+  wrench:"<path d='M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'/>",
+  ban:"<circle cx='12' cy='12' r='10'/><path d='m4.9 4.9 14.2 14.2'/>",
+  lightbulb:"<path d='M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5'/><path d='M9 18h6'/><path d='M10 22h4'/>",
+  "messages-square":"<path d='M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z'/><path d='M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1'/>",
+  "log-out":"<path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><polyline points='16 17 21 12 16 7'/><line x1='21' x2='9' y1='12' y2='12'/>",
+  "undo-2":"<path d='M9 14 4 9l5-5'/><path d='M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11'/>",
+};
+function lucide(name, cls){
+  const body = ICONS[name] || ICONS.user;  // unknown → a neutral user glyph
+  const doc = new DOMParser().parseFromString(
+    "<svg xmlns='"+SVGNS+"' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' "+
+    "stroke-linecap='round' stroke-linejoin='round'>"+body+"</svg>", "image/svg+xml");
+  const svg = document.importNode(doc.documentElement, true);
+  svg.setAttribute("class", "ico" + (cls ? " " + cls : ""));
+  return svg;
+}
+function heading(name, text){ const h=document.createElement("h2"); h.append(lucide(name), document.createTextNode(text)); return h; }
+// avatar glyph per activity + the customizable sprite palette (icon names, no emoji)
+const FACES = { working:"code", waiting:"circle-help", blocked:"circle-alert", done:"circle-check" };
+const SPRITE_CHOICES = ["user","bot","code","cpu","rocket","ghost","cat","star","smile","flame"];
 const SWATCHES = ["#a6e3a1","#f9e2af","#89b4fa","#f38ba8","#cba6f7","#94e2d5"];
 const rows = new Map();               // charId -> row (live telemetry)
 const floor = document.getElementById("floor"), conn = document.getElementById("conn");
@@ -204,14 +249,14 @@ function render(){
   // there is one — honest workflow result, not a fake live conversation.
   const mr = document.createElement("div"); mr.className="room meeting";
   const ml = document.createElement("div"); ml.className="rlabel";
-  const ms=document.createElement("span"); ms.textContent="🗣 Meeting room"; ml.append(ms); mr.append(ml);
+  const ms=document.createElement("span"); ms.append(lucide("messages-square"), document.createTextNode(" Meeting room")); ml.append(ms); mr.append(ml);
   if (lastMeeting && lastMeeting.attendees && lastMeeting.attendees.length){
     const stage=document.createElement("div"); stage.className="stage";
     lastMeeting.attendees.slice(0,6).forEach((aid,i)=>{
       const av=document.createElement("div"); av.className="avatar done say";
       const b=document.createElement("div"); b.className="bubble";
       b.textContent=String((lastMeeting.decisions&&lastMeeting.decisions[0])||"decided").slice(0,40);
-      const f=document.createElement("div"); f.className="face"; f.textContent="🧑‍💼";
+      const f=document.createElement("div"); f.className="face"; f.style.color="#cba6f7"; f.append(lucide("user"));
       const nm=document.createElement("div"); nm.className="nm"; nm.textContent=aid;
       av.style.left=(18*(i%4)+10)+"%"; av.style.top=(Math.floor(i/4)*46)+"px"; av.append(b,f,nm);
       stage.append(av);
@@ -241,7 +286,7 @@ function makeAvatar(r, i, n){
   av.style.left = (cw*(i%cols) + cw/2 - 6) + "%";
   av.style.top  = (Math.floor(i/cols)*46) + "px";
   const bubble=document.createElement("div"); bubble.className="bubble"; bubble.textContent=bubbleText(r);
-  const face=document.createElement("div"); face.className="face"; face.textContent = prof.sprite || FACES[r.activity] || "🤖";
+  const face=document.createElement("div"); face.className="face"; face.append(lucide(prof.sprite || FACES[r.activity] || "user"));
   if (prof.accent) face.style.filter = `drop-shadow(0 0 3px ${prof.accent})`;
   const nm=document.createElement("div"); nm.className="nm"; nm.textContent = prof.displayName;
   const ring=document.createElement("div"); ring.className="ring"; if(prof.accent) ring.style.background=prof.accent;
@@ -268,7 +313,7 @@ function renderCEO(all){
     li.textContent="nothing needs you — the team is running."; needs.append(li); }
   for (const r of attention){ const id=charId(r); const prof=profileOf(id,r);
     const li=document.createElement("li"); li.className = r.activity==="waiting"||r.activity==="blocked"? r.activity:"disconnected";
-    const f=document.createElement("span"); f.textContent = prof.sprite || FACES[r.activity] || "🤖";
+    const f=document.createElement("span"); f.className="face "+r.activity; f.append(lucide(prof.sprite || FACES[r.activity] || "user"));
     const box=document.createElement("div");
     const t=document.createElement("div"); t.textContent = prof.displayName + " · " + r.cli;
     const why=document.createElement("div"); why.className="why";
@@ -293,7 +338,7 @@ function openSheet(r){
   nameI.oninput=()=>saveProfile(id,{displayName:nameI.value.trim()});
   const sp=document.getElementById("cSprites"); sp.textContent="";
   SPRITE_CHOICES.forEach(s=>{ const b=document.createElement("button");
-    b.textContent=s; b.setAttribute("aria-pressed", (prof.sprite===s)?"true":"false");
+    b.append(lucide(s)); b.title=s; b.setAttribute("aria-pressed", (prof.sprite===s)?"true":"false");
     b.onclick=()=>{ saveProfile(id,{sprite:s}); openSheet(r); render(); }; sp.append(b); });
   const sw=document.getElementById("cSwatches"); sw.textContent="";
   SWATCHES.forEach(c=>{ const b=document.createElement("button"); b.style.background=c;
@@ -332,12 +377,16 @@ async function refreshCompany(){
   const prevMeeting = lastMeeting;
   lastMeeting = data ? data.meeting : null;
   if (JSON.stringify(prevMeeting) !== JSON.stringify(lastMeeting)) render();  // refresh the meeting room
-  if (!data){  // no company → honest gated view (default markup stays)
-    if (!desk.querySelector(".gate")) desk.innerHTML =
-      '<div class="gate locked">✅ Approvals · <b>Requires Company Layer</b></div>'+
-      '<div class="gate locked">🎯 OKRs / goals · <b>Requires Company Layer</b></div>'+
-      '<div class="gate locked">🧑‍🤝‍🧑 Team &amp; HR · <b>Requires Company Layer</b></div>'+
-      '<div class="gate locked">💰 Budget &amp; spend · <b>Requires Company Layer</b></div>';
+  if (!data){  // no company → honest gated view (built with icons, no emoji)
+    if (!desk.querySelector(".gate")){
+      desk.textContent="";
+      for (const [ic,lab] of [["circle-check","Approvals"],["target","OKRs / goals"],
+                              ["users","Team & HR"],["banknote","Budget & spend"]]){
+        const g=document.createElement("div"); g.className="gate locked";
+        const b=document.createElement("b"); b.textContent="Requires Company Layer";
+        g.append(lucide(ic), document.createTextNode(" "+lab+" · "), b); desk.append(g);
+      }
+    }
     return;
   }
   desk.textContent="";
@@ -345,11 +394,11 @@ async function refreshCompany(){
   chip.textContent = `${data.summary.name} · mode: ${data.summary.mode.drive} · CEO sees: ${data.summary.mode.ceo_updates}`;
   desk.append(chip);
   // approvals (real CEO cards)
-  const ah=document.createElement("h2"); ah.textContent=`✅ Needs your sign-off (${data.ceo_cards.length})`; ah.style.margin="6px 0"; desk.append(ah);
+  const ah=heading("circle-check", ` Needs your sign-off (${data.ceo_cards.length})`); ah.style.margin="6px 0"; desk.append(ah);
   if (!data.ceo_cards.length){ const d=document.createElement("div"); d.className="readonly"; d.textContent="nothing pending — the team is deciding within its authority."; desk.append(d); }
   for (const c of data.ceo_cards){
     const card=document.createElement("div"); card.className="card"+(c.one_way_door?" oneway":"");
-    const t=document.createElement("div"); t.append(document.createTextNode((c.one_way_door?"🚪 ":"↩ ")), esc(c.decision));
+    const t=document.createElement("div"); t.append(lucide(c.one_way_door?"log-out":"undo-2"), document.createTextNode(" "), esc(c.decision));
     const rec=document.createElement("div"); rec.className="rec"; rec.append(document.createTextNode("recommend: "), esc(c.recommendation||"—"));
     const det=document.createElement("details"); const sm=document.createElement("summary"); sm.textContent="why / who / how (5W1H)"; det.append(sm);
     const dl=document.createElement("dl");
@@ -358,7 +407,7 @@ async function refreshCompany(){
     det.append(dl); card.append(t,rec,det); desk.append(card);
   }
   // OKRs (real progress)
-  const oh=document.createElement("h2"); oh.textContent=`🎯 Goal: ${Math.round(data.summary.okr_progress*100)}%`; oh.style.margin="10px 0 4px"; desk.append(oh);
+  const oh=heading("target", ` Goal: ${Math.round(data.summary.okr_progress*100)}%`); oh.style.margin="10px 0 4px"; desk.append(oh);
   const obj=document.createElement("div"); obj.className="readonly"; obj.style.marginTop="0"; obj.textContent=data.summary.objective; desk.append(obj);
   if (!data.okrs.length){ const d=document.createElement("div"); d.className="readonly"; d.textContent="no Key Results yet — the team sets them in the weekly review."; desk.append(d); }
   for (const k of data.okrs){
@@ -370,27 +419,30 @@ async function refreshCompany(){
   // HR (evidence-based recommendations)
   const hr=(data.hr||[]);
   if (hr.length){
-    const hh=document.createElement("h2"); hh.textContent=`🧑‍🤝‍🧑 HR (${hr.length})`; hh.style.margin="12px 0 4px"; desk.append(hh);
+    const hh=heading("users", ` HR (${hr.length})`); hh.style.margin="12px 0 4px"; desk.append(hh);
     for (const r of hr){ const d=document.createElement("div"); d.className="okr";
-      const icon = r.kind==="fire"?"🔴 fire":"🟢 hire"; const gate = r.needs_ceo?" · needs your ok":"";
-      const t=document.createElement("div"); t.append(document.createTextNode(icon+" "), esc(r.target), document.createTextNode(gate));
+      const fire = r.kind==="fire"; const gate = r.needs_ceo?" · needs your ok":"";
+      const ico = lucide(fire?"user-minus":"user-plus"); ico.style.color = fire?"var(--blocked)":"var(--working)";
+      const t=document.createElement("div");
+      t.append(ico, document.createTextNode(" "+(fire?"fire ":"hire ")), esc(r.target), document.createTextNode(gate));
       const why=document.createElement("div"); why.className="readonly"; why.style.margin="0"; why.textContent=r.reason;
       d.append(t,why); desk.append(d); }
   }
   // Trend radar
   const tr=(data.trends||[]);
   if (tr.length){
-    const th=document.createElement("h2"); th.textContent="📡 Trends"; th.style.margin="12px 0 4px"; desk.append(th);
-    for (const t of tr.slice(0,6)){ const d=document.createElement("div"); d.className="readonly"; d.style.margin="2px 0"; d.textContent="• "+t; desk.append(d); }
+    const th=heading("trending-up", " Trends"); th.style.margin="12px 0 4px"; desk.append(th);
+    for (const t of tr.slice(0,6)){ const d=document.createElement("div"); d.className="readonly"; d.style.margin="2px 0";
+      d.append(lucide("trending-up"), document.createTextNode(" "), esc(t)); desk.append(d); }
   }
   // Activity — what the company actually did (newest first), so the CEO can watch
   const act=(data.activity||[]);
   if (act.length){
-    const ic={plan:"🗺️",work:"⚙️",blocked:"⛔",decision:"🧠",trend:"📡",hr:"🧑‍🤝‍🧑"};
-    const ah2=document.createElement("h2"); ah2.textContent="🕑 Activity"; ah2.style.margin="12px 0 4px"; desk.append(ah2);
+    const ic={plan:"map",work:"wrench",blocked:"ban",decision:"lightbulb",trend:"trending-up",hr:"users"};
+    const ah2=heading("activity", " Activity"); ah2.style.margin="12px 0 4px"; desk.append(ah2);
     for (const a of act.slice().reverse().slice(0,10)){
       const d=document.createElement("div"); d.className="readonly"; d.style.margin="2px 0";
-      d.append(document.createTextNode((ic[a.kind]||"•")+" "), esc(a.text)); desk.append(d);
+      d.append(lucide(ic[a.kind]||"activity"), document.createTextNode(" "), esc(a.text)); desk.append(d);
     }
   }
 }
