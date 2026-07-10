@@ -38,6 +38,7 @@ _CLAUDE = {
     "Notification:idle_prompt": "done",  # "done and waiting for your next prompt"
     "Notification:agent_completed": "done",
     "PreCompact": "working",             # compaction is real work, not idleness
+    "AssistantMessage": "working",       # tailer: model output in flight
     "Stop": "done",
     "SessionEnd": "done",                # session closed; liveness will decay
     "StopFailure": "blocked",            # turn died on an API error — needs a human

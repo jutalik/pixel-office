@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import glob as _glob
 import json
+import os
 import sys
+from pathlib import Path
 
 from . import __version__, doctor
 
@@ -18,6 +21,39 @@ def _cmd_doctor(args) -> int:
     return 0 if report["loopback_port"] else 1
 
 
+def _newest_claude_transcript() -> Path | None:
+    spec = doctor._CLIS["claude"]
+    home = doctor._resolve_home(spec)
+    matches = _glob.glob(str(home / spec["session_glob"]))
+    if not matches:
+        return None
+    return Path(max(matches, key=os.path.getmtime))
+
+
+def _cmd_up(args) -> int:
+    if args.file:
+        transcript = Path(args.file)
+        if not transcript.exists():
+            print(f"po up: transcript not found: {transcript}", file=sys.stderr)
+            return 1
+    else:
+        transcript = _newest_claude_transcript()
+        if transcript is None:
+            print("po up: no Claude transcripts found — run `po doctor`, or pass --file.",
+                  file=sys.stderr)
+            return 1
+    try:
+        import uvicorn
+        from .server import create_app
+    except ImportError:
+        print('po up needs the web extra: pip install "pixel-office[web]"', file=sys.stderr)
+        return 1
+    app = create_app([transcript], host_id=args.host_id)
+    print(f"pixel office → http://127.0.0.1:{args.port}   (watching {transcript.name})")
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="po", description="Pixel Office — watch your AI company.")
     p.add_argument("-V", "--version", action="version", version=f"pixel-office {__version__}")
@@ -25,6 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="show the capability matrix for this machine")
     d.add_argument("--json", action="store_true", help="emit JSON")
     d.set_defaults(func=_cmd_doctor)
+    u = sub.add_parser("up", help="watch a CLI session as a live office (loopback only)")
+    u.add_argument("--file", help="transcript to watch (default: newest Claude transcript)")
+    u.add_argument("--port", type=int, default=7717)
+    u.add_argument("--host-id", default="local")
+    u.set_defaults(func=_cmd_up)
     return p
 
 

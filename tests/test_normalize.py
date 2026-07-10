@@ -4,7 +4,8 @@ from pixel_office.telemetry.normalize import TAILER_DERIVABLE, _TABLES, normaliz
 
 def test_claude_working():
     for k in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-              "PostToolUseFailure", "SubagentStart", "PermissionDenied", "PreCompact"):
+              "PostToolUseFailure", "SubagentStart", "PermissionDenied", "PreCompact",
+              "AssistantMessage"):
         assert normalize("claude", k) == "working"
 
 

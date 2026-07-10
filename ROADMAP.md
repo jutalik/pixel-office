@@ -35,6 +35,12 @@ One Claude session → tailer → normalized event → single in-memory state �
 a CSS state change on one avatar. Keep truncation-safety and `stale/disconnected` from day one;
 defer SQLite history, multi-pane mapping, movement, and rotation handling.
 **Exit:** run Claude in a terminal → one avatar reacts, live.
+✅ **Shipped 2026-07-10** (`po up`, 80 tests green). Verified end-to-end live: working →
+working(tool) → done transitions on a mutating transcript; ws snapshot+delta; headless-browser
+screenshot; dogfooded against this repo's own build session (which calibrated the liveness
+defaults to 90 s/600 s — a single real Claude API call can exceed 2 minutes). Beyond plan:
+same-size rewrite detection (inode+head fingerprint) and per-record fail-open landed early
+(Codex review); subagent (sidechain) avatars intentionally deferred to hooks (Phase 2).
 
 ## Phase 1b — Durable tailing & hardening
 Byte-offset + mtime/size + newline-boundary resume (truncation→reset, rotation→rescan); reconnect

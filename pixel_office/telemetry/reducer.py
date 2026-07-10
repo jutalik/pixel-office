@@ -34,6 +34,12 @@ from .normalize import normalize
 #: tailer, while a merely-slower observer within the window defers to precedence.
 DEFAULT_GRACE_S = 10.0
 
+#: Liveness defaults, calibrated by dogfooding against a real Claude session
+#: (2026-07-10): a single API call can exceed 2 minutes, and the tailer only
+#: sees per-call records — 30s/120s misread a hard-working agent as gone.
+DEFAULT_STALE_S = 90.0
+DEFAULT_DISCONNECTED_S = 600.0
+
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
@@ -137,8 +143,8 @@ def reduce_all(events: Iterable[RawEvent]) -> ReducerState:
 # ---- view / liveness derivation (time-dependent, kept out of the reducer) ----
 
 def derive_liveness(last_ts: str, now: datetime, *, connected: bool = True,
-                    stale_after_s: float = 30.0,
-                    disconnected_after_s: float = 120.0) -> str:
+                    stale_after_s: float = DEFAULT_STALE_S,
+                    disconnected_after_s: float = DEFAULT_DISCONNECTED_S) -> str:
     if not connected:
         return "disconnected"
     ts = _parse_ts(last_ts)
@@ -156,8 +162,8 @@ def derive_liveness(last_ts: str, now: datetime, *, connected: bool = True,
 
 def view(state: ReducerState, now: datetime, *,
          connected_sessions=None,
-         stale_after_s: float = 30.0,
-         disconnected_after_s: float = 120.0,
+         stale_after_s: float = DEFAULT_STALE_S,
+         disconnected_after_s: float = DEFAULT_DISCONNECTED_S,
          grace_s: float = DEFAULT_GRACE_S) -> List[dict]:
     """Avatar view: one row per agent with effective activity + derived liveness.
 

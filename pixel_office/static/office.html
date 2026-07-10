@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self' ws: wss:; img-src data:;">
+<title>pixel office</title>
+<style>
+  :root { --bg:#14141f; --card:#1e1e2e; --ink:#cdd6f4; --dim:#6c7086; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-monospace, Menlo, Consolas, monospace;
+         background: var(--bg); color: var(--ink); min-height:100vh; }
+  header { padding:14px 20px; border-bottom:1px solid #2a2a3c;
+           display:flex; justify-content:space-between; align-items:baseline; }
+  h1 { font-size:15px; margin:0; letter-spacing:1px; }
+  #conn { font-size:11px; color:var(--dim); }
+  #office { display:flex; flex-wrap:wrap; gap:14px; padding:20px; }
+  .avatar { background:var(--card); border:2px solid #2a2a3c; border-radius:4px;
+            padding:14px 16px; min-width:210px;
+            box-shadow: 3px 3px 0 #0007; image-rendering: pixelated; }
+  .face { font-size:34px; line-height:1; }
+  .who  { margin-top:8px; font-size:12px; }
+  .sess { color:var(--dim); font-size:10px; margin-top:2px; }
+  .state { margin-top:8px; font-size:11px; text-transform:uppercase;
+           letter-spacing:1px; padding:2px 8px; display:inline-block; border-radius:2px; }
+  .working  { border-color:#a6e3a1; } .working  .state { background:#a6e3a133; color:#a6e3a1; }
+  .waiting  { border-color:#f9e2af; } .waiting  .state { background:#f9e2af33; color:#f9e2af; }
+  .blocked  { border-color:#f38ba8; } .blocked  .state { background:#f38ba833; color:#f38ba8; }
+  .done     { border-color:#89b4fa; } .done     .state { background:#89b4fa33; color:#89b4fa; }
+  .liveness { font-size:10px; color:var(--dim); margin-left:8px; }
+  .stale .face, .disconnected .face { filter: grayscale(1) opacity(.45); }
+  #empty { color:var(--dim); padding:40px; font-size:12px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .working.live .face { animation: bob 1.2s ease-in-out infinite; }
+    @keyframes bob { 50% { transform: translateY(-3px); } }
+  }
+</style>
+</head>
+<body>
+<header><h1>PIXEL OFFICE</h1><span id="conn">connecting…</span></header>
+<div id="office"></div>
+<div id="empty" hidden>no agents observed yet — run your CLI and watch this space.</div>
+<script>
+"use strict";
+const FACES = { working:"🧑‍💻", waiting:"🙋", blocked:"🆘", done:"😌" };
+const rows = new Map();
+const office = document.getElementById("office");
+const empty = document.getElementById("empty");
+const conn = document.getElementById("conn");
+
+function key(r){ return [r.host_id, r.cli, r.session_id, r.agent_id].join("|"); }
+
+function render(){
+  if (document.hidden) return;               // pause rendering on hidden tab
+  office.textContent = "";
+  empty.hidden = rows.size !== 0;
+  for (const r of [...rows.values()].sort((a,b)=>key(a)<key(b)?-1:1)){
+    const card = document.createElement("div");
+    card.className = `avatar ${r.activity} ${r.liveness}`;
+    const face = document.createElement("div");
+    face.className = "face";
+    face.textContent = FACES[r.activity] || "🤖";
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = `${r.cli} · ${r.agent_id}`;      // textContent only — CLI
+    const sess = document.createElement("div");         // text is never innerHTML
+    sess.className = "sess";
+    sess.textContent = r.session_id.slice(0, 18);
+    const state = document.createElement("span");
+    state.className = "state";
+    state.textContent = r.activity;
+    const live = document.createElement("span");
+    live.className = "liveness";
+    live.textContent = r.liveness;
+    card.append(face, who, sess, state, live);
+    office.append(card);
+  }
+}
+document.addEventListener("visibilitychange", render);
+
+let retry = 500;
+function connect(){
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/office`);
+  ws.onopen = () => { conn.textContent = "live"; retry = 500; };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "snapshot") rows.clear();
+    for (const r of msg.rows) rows.set(key(r), r);
+    render();
+  };
+  ws.onclose = () => {
+    conn.textContent = "reconnecting…";
+    setTimeout(connect, retry);
+    retry = Math.min(retry * 2, 10000);       // backoff with cap
+  };
+}
+connect();
+</script>
+</body>
+</html>
