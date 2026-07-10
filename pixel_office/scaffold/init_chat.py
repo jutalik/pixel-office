@@ -25,6 +25,7 @@ QUESTIONS = [
     ("benchmarks", "Any projects to benchmark against? (comma-separated)", False),
     ("stack", f"Stack? one of: {', '.join(TEMPLATES)}", False),
     ("roles", "Starting team? (e.g. '2 writer, 1 editor' — blank for a solo founder)", False),
+    ("mode", "How autonomous should the company run? Manual / Copilot / Autopilot (blank=Copilot)", False),
 ]
 
 
@@ -51,6 +52,7 @@ def answers_to_manifest(answers: Dict[str, str]) -> Manifest:
         "stack": (answers.get("stack") or "api-service").strip() or "api-service",
         "benchmarks": [b.strip() for b in str(answers.get("benchmarks", "")).split(",") if b.strip()],
         "roles": _parse_roles(answers.get("roles", "")),
+        "mode": (answers.get("mode") or "").strip() or "Copilot",
     }
     return Manifest.from_dict(d)
 

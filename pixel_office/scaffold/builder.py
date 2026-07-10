@@ -34,6 +34,7 @@ def _manifest_json(m: Manifest) -> str:
         "name": m.name, "slug": m.slug, "what": m.what, "goal": m.goal,
         "niche": m.niche, "stack": m.stack, "benchmarks": list(m.benchmarks),
         "roles": [{"title": r.title, "count": r.count} for r in m.roles],
+        "mode": m.mode.to_dict(),
     }, indent=2) + "\n"
 
 

@@ -103,6 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--stack", default="api-service")
     n.add_argument("--benchmarks", help="comma-separated")
     n.add_argument("--roles", help="e.g. '2 writer, 1 editor'")
+    n.add_argument("--mode", choices=["Manual", "Copilot", "Autopilot"], default="Copilot",
+                   help="how autonomous the AI company runs (default: Copilot)")
     n.add_argument("--yes", action="store_true", help="skip confirmation (non-interactive)")
     n.set_defaults(func=_cmd_new)
     dep = sub.add_parser("deploy", help="detect the env and recommend a promotion path")
@@ -121,7 +123,7 @@ def _cmd_new(args) -> int:
         manifest = answers_to_manifest({
             "what": args.what, "name": args.name or args.what, "goal": args.goal or "",
             "niche": args.niche or "", "stack": args.stack, "benchmarks": args.benchmarks or "",
-            "roles": args.roles or "",
+            "roles": args.roles or "", "mode": getattr(args, "mode", None),
         })
         print(manifest.charter())
         if not args.yes:

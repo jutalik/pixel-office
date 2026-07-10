@@ -52,6 +52,13 @@ def test_builder_writes_instrumented_skeleton(tmp_path):
     assert (project / "Dockerfile").exists()
     saved = json.loads((project / "pixel-office.json").read_text())
     assert saved["what"] == "AI notes" and saved["stack"] == "chat-product"
+    assert saved["mode"]["drive"] == "Copilot"  # default operating mode recorded
+
+
+def test_manifest_records_operating_mode():
+    m = Manifest.from_dict({"what": "x", "mode": "Autopilot"})
+    assert m.mode.drive == "Autopilot" and m.mode.ceo_updates == "Weekly digest"
+    assert "Autopilot" in m.charter()
 
 
 def test_malicious_name_cannot_inject_code(tmp_path):
@@ -127,7 +134,7 @@ def test_scaffolded_backend_smoke_passes(tmp_path):
 
 def test_interactive_flow_with_injected_io():
     scripted = iter(["a cooking blog", "CookBot", "weekly recipes", "home cooks", "allrecipes",
-                     "chat-product", "1 writer"])
+                     "chat-product", "1 writer", "Autopilot"])
     said = []
     m = run_interactive(lambda _p: next(scripted), lambda _p: True, said.append)
     assert m is not None and m.name == "CookBot" and m.stack == "chat-product"
@@ -135,6 +142,6 @@ def test_interactive_flow_with_injected_io():
 
 
 def test_interactive_cancel_writes_nothing():
-    scripted = iter(["a blog", "", "", "", "", "", ""])
+    scripted = iter(["a blog", "", "", "", "", "", "", ""])
     m = run_interactive(lambda _p: next(scripted), lambda _p: False, lambda _s: None)
     assert m is None

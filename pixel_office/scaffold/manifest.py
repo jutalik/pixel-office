@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass, field
 from typing import List
 
+from ..company.mode import OperatingMode
 from .templates import TEMPLATES
 
 _NAME_RE = re.compile(r"[^a-z0-9-]+")
@@ -52,6 +53,7 @@ class Manifest:
     stack: str = "api-service"
     benchmarks: List[str] = field(default_factory=list)
     roles: List[Role] = field(default_factory=list)
+    mode: OperatingMode = field(default_factory=OperatingMode)
 
     @property
     def slug(self) -> str:
@@ -93,6 +95,7 @@ class Manifest:
             stack=stack,
             benchmarks=benchmarks,
             roles=roles or [Role("Founder", 1)],
+            mode=OperatingMode.from_dict(d.get("mode")) if d.get("mode") else OperatingMode(),
         )
 
     def charter(self) -> str:
@@ -105,6 +108,7 @@ class Manifest:
             f"Niche    : {self.niche or '(broad)'}",
             f"Stack    : {self.stack}  ({TEMPLATES[self.stack].summary})",
             f"Team     : {team}",
+            f"Mode     : {self.mode.drive}  (CEO sees: {self.mode.ceo_updates.lower()})",
         ]
         if self.benchmarks:
             lines.append(f"Benchmarks: {', '.join(self.benchmarks)}")
