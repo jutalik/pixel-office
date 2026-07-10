@@ -94,6 +94,15 @@ def test_api_meta_reports_run_mode(transcript):
         assert client.get("/api/meta").json()["run_mode"] == "watch"
 
 
+def test_api_meta_diag_health(transcript):
+    # the in-app diagnostics footer reads sanitized health (counts + labels only)
+    with TestClient(create_app([transcript])) as client:
+        d = client.get("/api/meta").json()["diag"]
+        assert d["sources"] == 1 and d["poll_errors"] == 0
+        assert d["last_update"]                       # a tick ran on startup
+        assert all(not str(x).startswith("/") for x in d["source_labels"])  # no paths leak
+
+
 def test_ws_heartbeat_pong(transcript):
     # a live-but-quiet office answers the client ping so its watchdog sees frames
     with TestClient(create_app([transcript])) as client:

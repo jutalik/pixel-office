@@ -88,6 +88,11 @@
   .card details { margin-top:4px; } .card summary { cursor:pointer; color:var(--dim); font-size:10px; }
   .card .btns { display:flex; gap:6px; margin-top:6px; }
   .mode-chip { font-size:10px; color:var(--dim); margin-bottom:8px; }
+  .diag { margin-top:14px; padding-top:10px; border-top:1px solid var(--line); font-size:10px; color:var(--dim); line-height:1.7; }
+  .diag .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; background:var(--dim); }
+  .diag .dot.live{background:var(--working)} .diag .dot.stale{background:var(--waiting)} .diag .dot.offline{background:var(--blocked)}
+  .diag code { color:var(--ink); background:#1e1e2e; padding:1px 4px; border-radius:3px; }
+  .diag .err { color:var(--blocked); }
   /* detail / customize / chat sheet */
   #sheet { position:fixed; right:0; top:0; bottom:0; width:min(340px,90vw); background:var(--panel);
            border-left:2px solid var(--line); box-shadow:-4px 0 20px #0008; transform:translateX(100%);
@@ -139,6 +144,7 @@
     <div id="ceoDesk"></div>
     <p class="readonly">Live company data (approvals, goals) lights up when the Company Layer is
       running. Everything above the desk is real telemetry from your CLIs.</p>
+    <div id="diag" class="diag"></div>
   </aside>
 </main>
 <aside id="sheet" hidden>
@@ -597,13 +603,35 @@ const MODE_TEXT = { demo:["demo","DEMO · simulated activity, not real work"],
                     live:["live·real","LIVE · real CLI agents — spends tokens when they work"],
                     dormant:["idle","company idle — assign work to wake it"],
                     watch:["watching","watching your live CLI sessions"] };
+function agoText(iso){ if(!iso) return "—"; const s=Math.max(0,Math.round((Date.now()-Date.parse(iso))/1000));
+  return s<60 ? s+"s ago" : Math.round(s/60)+"m ago"; }
 async function refreshMeta(){
-  try { const r=await fetch("/api/meta"); if(!r.ok) return; const m=await r.json();
+  try { const r=await fetch("/api/meta"); if(!r.ok){ renderDiag(null); return; } const m=await r.json();
     const el=document.getElementById("mode"); const info=MODE_TEXT[m.run_mode]||MODE_TEXT.watch;
     el.className="mode-badge "+m.run_mode; el.textContent=info[0]; el.title=info[1];
-  } catch(e){}
+    renderDiag(m.diag, m.has_company);
+  } catch(e){ renderDiag(null); }
 }
-refreshMeta();
+function renderDiag(d, hasCompany){
+  const el=document.getElementById("diag"); if(!el) return; el.textContent="";
+  // connection line (client-side truth: is the ws feeding us frames?)
+  const state = conn.textContent==="live" ? "live" : conn.className || "offline";
+  const c=document.createElement("div"); const dot=document.createElement("span");
+  dot.className="dot "+(state==="live"?"live":state==="stale"?"stale":"offline");
+  c.append(dot, document.createTextNode("connection: "+conn.textContent)); el.append(c);
+  if(!d){ const x=document.createElement("div"); x.textContent="diagnostics unavailable"; el.append(x); return; }
+  const src = (d.source_labels&&d.source_labels.length) ? d.source_labels.join(", ")
+            : hasCompany ? "company runtime" : (d.sources+" source(s)");
+  const lines=[["source", src], ["last update", agoText(d.last_update)], ["viewers", String(d.clients)]];
+  for(const [k,v] of lines){ const row=document.createElement("div");
+    row.append(document.createTextNode(k+": "), esc(v)); el.append(row); }
+  if(d.poll_errors>0){ const e=document.createElement("div"); e.className="err";
+    e.append(lucide("circle-alert"), document.createTextNode(" poll errors: "+d.poll_errors)); el.append(e); }
+  const tip=document.createElement("div"); tip.style.marginTop="4px";
+  const code=document.createElement("code"); code.textContent="po doctor";
+  tip.append(document.createTextNode("stuck? run "), code, document.createTextNode(" in your terminal")); el.append(tip);
+}
+refreshMeta(); setInterval(refreshMeta, 5000);
 
 // ---- live wiring: snapshot + deltas, heartbeat + watchdog, offline snapshot ---
 for (const r of loadJSON("po:last",[])){ rows.set(charId(r), r); }

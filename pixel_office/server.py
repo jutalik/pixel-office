@@ -73,6 +73,18 @@ class OfficeHub:
         self.last_view: List[dict] = []
         self.clients: set = set()
         self._task: Optional[asyncio.Task] = None
+        self.poll_errors = 0                       # bounded, sanitized (count only) for diagnostics
+        self.last_update: Optional[str] = None     # iso ts of the last successful poll tick
+
+    def diag(self) -> dict:
+        """Sanitized health snapshot for the in-app diagnostics footer — counts +
+        source labels only, never paths/tokens/prompts."""
+        labels = []
+        for s in self.tailers:
+            labels.append(getattr(s, "cli", None) or type(s).__name__)
+        return {"sources": len(self.tailers), "source_labels": labels,
+                "clients": len(self.clients), "poll_errors": self.poll_errors,
+                "last_update": self.last_update}
 
     def _row_key(self, row: dict):
         return (row["host_id"], row["cli"], row["session_id"], row["agent_id"])
@@ -85,10 +97,12 @@ class OfficeHub:
         """Apply one event immediately (hook / autonomy path) and return changed rows."""
         with self._state_lock:
             self.state = reduce(self.state, ev)
-            new_view = view(self.state, datetime.now(timezone.utc))
+            now = datetime.now(timezone.utc)
+            new_view = view(self.state, now)
             old = {self._row_key(r): r for r in self.last_view}
             changed = [r for r in new_view if old.get(self._row_key(r)) != r]
             self.last_view = new_view
+            self.last_update = now.isoformat()
         return changed
 
     def tick_sync(self) -> List[dict]:
@@ -99,10 +113,12 @@ class OfficeHub:
                 for ev in tailer.poll():
                     self.state = reduce(self.state, ev)
                     self.last_batch_size += 1
-            new_view = view(self.state, datetime.now(timezone.utc))
+            now = datetime.now(timezone.utc)
+            new_view = view(self.state, now)
             old = {self._row_key(r): r for r in self.last_view}
             changed = [r for r in new_view if old.get(self._row_key(r)) != r]
             self.last_view = new_view
+            self.last_update = now.isoformat()
         return changed
 
     async def _loop(self):
@@ -119,7 +135,11 @@ class OfficeHub:
                     await self._broadcast({"type": "delta", "rows": list(pending.values())})
                     pending = {}
             except Exception:
-                pass  # fail open — telemetry must never kill the dashboard
+                # fail open — never kill the dashboard. Saturate the counter (no
+                # unbounded growth) and force the normal poll delay so a persistent
+                # error can't spin the loop at sleep(0).
+                self.poll_errors = min(self.poll_errors + 1, 9999)
+                self.last_batch_size = 0
             # sleep(0) still yields to the event loop so HTTP/ws stay responsive
             await asyncio.sleep(0 if self.last_batch_size else POLL_INTERVAL_S)
 
@@ -178,7 +198,8 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
         # lets the browser show — persistently + honestly — whether it's watching
         # real CLI sessions, running a LIVE company (real work/tokens), a DEMO
         # (simulated, no real work), or a dormant company (idle until assigned).
-        return JSONResponse({"run_mode": run_mode, "has_company": company is not None})
+        return JSONResponse({"run_mode": run_mode, "has_company": company is not None,
+                             "diag": hub.diag()})
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
