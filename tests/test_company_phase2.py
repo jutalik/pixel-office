@@ -98,6 +98,42 @@ def test_company_runtime_dispatches():
     assert r.ok
 
 
+def test_company_hold_meeting_updates_okrs_and_records():
+    from pixel_office.company.meeting import GoalUpdate, Outcome
+    c = _company()
+    events = []
+    c.runtime.sink = events.append
+    out = c.hold_meeting(
+        "weekly review", "how to lift weekly posts?", ["eng", "writer"],
+        position_fn=lambda a, p: f"{a}: publish more",
+        synthesize_fn=lambda pos, pk: Outcome(decisions=["publish 8/wk"],
+                                              goal_updates=[GoalUpdate("kr1", 8)]))
+    assert out.decisions == ["publish 8/wk"]
+    assert c.okrs.key_results[0].current == 8            # OKR auto-updated by the meeting
+    mv = c.meeting_view()
+    assert mv["attendees"] == ["eng", "writer"] and mv["decisions"] == ["publish 8/wk"]
+    assert c.summary()["has_meeting"] is True
+    # attendees animated via the runtime sink (Working → Done, honest stages)
+    kinds = [e.kind for e in events]
+    assert kinds.count("Working") == 2 and kinds.count("Done") == 2
+
+
+def test_company_hold_meeting_with_bad_synthesis_still_records():
+    c = _company()
+    out = c.hold_meeting("x", "y", ["eng"], position_fn=lambda a, p: "ok",
+                         synthesize_fn=lambda pos, p: None)   # malformed synthesis
+    assert "deferred" in out.decisions[0]
+    assert c.meeting_view() is not None                      # recorded, no crash
+
+
+def test_company_hr_and_trends_views():
+    c = _company()
+    assert isinstance(c.hr_view(), list) and isinstance(c.trends_view(), list)
+    c.radar.search_fn = lambda q: ["AI kitchens", "meal prep"]
+    c.scan_trends(now=0)
+    assert "AI kitchens" in c.trends_view()
+
+
 # ---- e2e: a running company lights up the CEO panel via /api/company ----------
 
 def test_e2e_api_company_and_no_company_204():

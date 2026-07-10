@@ -83,6 +83,8 @@ class Meeting:
             self.outcome = synthesize_fn(self.positions, self.packet)
         except Exception:
             self.outcome = Outcome(decisions=["(synthesis failed — deferred)"])
+        if not isinstance(self.outcome, Outcome):   # None / malformed return, not an exception
+            self.outcome = Outcome(decisions=["(synthesis returned no valid outcome — deferred)"])
         for a in self.attendees:
             _emit(a, "Done")                        # returns to its room
         self.status = "completed"

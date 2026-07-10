@@ -159,6 +159,7 @@ function loadJSON(k, d){ try { return JSON.parse(localStorage.getItem(k)) || d; 
 function saveJSON(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
 const profiles = loadJSON("po:profiles", {});   // charId -> {displayName,sprite,accent}
 const officeCfg = loadJSON("po:office", { rooms:{} });  // roomId -> {label}
+let lastMeeting = null;   // set from /api/company (a concluded async meeting)
 function setBanner(m){ if(m){banner.textContent=m;banner.classList.add("show");} else banner.classList.remove("show"); }
 
 function charId(r){ return [r.host_id,r.cli,r.session_id,r.agent_id].join("|"); }
@@ -199,12 +200,32 @@ function render(){
     mates.forEach((r,i)=> stage.append(makeAvatar(r,i,mates.length)));
     floor.append(room);
   }
-  // an inert meeting room previews future company-layer meetings (honest: gated)
+  // meeting room: shows the concluded async meeting (attendees + decision) when
+  // there is one — honest workflow result, not a fake live conversation.
   const mr = document.createElement("div"); mr.className="room meeting";
   const ml = document.createElement("div"); ml.className="rlabel";
   const ms=document.createElement("span"); ms.textContent="🗣 Meeting room"; ml.append(ms); mr.append(ml);
-  const g=document.createElement("div"); g.className="gate";
-  g.textContent="empty — meetings animate here when the Company Layer runs one"; mr.append(g);
+  if (lastMeeting && lastMeeting.attendees && lastMeeting.attendees.length){
+    const stage=document.createElement("div"); stage.className="stage";
+    lastMeeting.attendees.slice(0,6).forEach((aid,i)=>{
+      const av=document.createElement("div"); av.className="avatar done say";
+      const b=document.createElement("div"); b.className="bubble";
+      b.textContent=String((lastMeeting.decisions&&lastMeeting.decisions[0])||"decided").slice(0,40);
+      const f=document.createElement("div"); f.className="face"; f.textContent="🧑‍💼";
+      const nm=document.createElement("div"); nm.className="nm"; nm.textContent=aid;
+      av.style.left=(18*(i%4)+10)+"%"; av.style.top=(Math.floor(i/4)*46)+"px"; av.append(b,f,nm);
+      stage.append(av);
+    });
+    mr.append(stage);
+    const cap=document.createElement("div"); cap.className="gate";
+    cap.textContent="async meeting · concluded — "+((lastMeeting.decisions||[]).join("; ")||"no decision");
+    mr.append(cap);
+    const note=document.createElement("div"); note.className="readonly"; note.style.margin="4px 0 0";
+    note.textContent="animation reflects workflow stages, not a live conversation."; mr.append(note);
+  } else {
+    const g=document.createElement("div"); g.className="gate";
+    g.textContent="empty — meetings animate here when the Company Layer runs one"; mr.append(g);
+  }
   floor.append(mr);
   renderCEO(all);
 }
@@ -308,6 +329,9 @@ async function refreshCompany(){
   const desk=document.getElementById("ceoDesk");
   let data=null;
   try { const r=await fetch("/api/company"); if(r.status===200) data=await r.json(); } catch(e){}
+  const prevMeeting = lastMeeting;
+  lastMeeting = data ? data.meeting : null;
+  if (JSON.stringify(prevMeeting) !== JSON.stringify(lastMeeting)) render();  // refresh the meeting room
   if (!data){  // no company → honest gated view (default markup stays)
     if (!desk.querySelector(".gate")) desk.innerHTML =
       '<div class="gate locked">✅ Approvals · <b>Requires Company Layer</b></div>'+
@@ -336,11 +360,28 @@ async function refreshCompany(){
   // OKRs (real progress)
   const oh=document.createElement("h2"); oh.textContent=`🎯 Goal: ${Math.round(data.summary.okr_progress*100)}%`; oh.style.margin="10px 0 4px"; desk.append(oh);
   const obj=document.createElement("div"); obj.className="readonly"; obj.style.marginTop="0"; obj.textContent=data.summary.objective; desk.append(obj);
+  if (!data.okrs.length){ const d=document.createElement("div"); d.className="readonly"; d.textContent="no Key Results yet — the team sets them in the weekly review."; desk.append(d); }
   for (const k of data.okrs){
     const o=document.createElement("div"); o.className="okr";
     const lab=document.createElement("div"); lab.append(esc(`${k.text} (${k.cadence})`), document.createTextNode(` ${Math.round(k.progress*100)}%`));
     const bar=document.createElement("div"); bar.className="bar"; const fill=document.createElement("i"); fill.style.width=(k.progress*100)+"%"; bar.append(fill);
     o.append(lab,bar); desk.append(o);
+  }
+  // HR (evidence-based recommendations)
+  const hr=(data.hr||[]);
+  if (hr.length){
+    const hh=document.createElement("h2"); hh.textContent=`🧑‍🤝‍🧑 HR (${hr.length})`; hh.style.margin="12px 0 4px"; desk.append(hh);
+    for (const r of hr){ const d=document.createElement("div"); d.className="okr";
+      const icon = r.kind==="fire"?"🔴 fire":"🟢 hire"; const gate = r.needs_ceo?" · needs your ok":"";
+      const t=document.createElement("div"); t.append(document.createTextNode(icon+" "), esc(r.target), document.createTextNode(gate));
+      const why=document.createElement("div"); why.className="readonly"; why.style.margin="0"; why.textContent=r.reason;
+      d.append(t,why); desk.append(d); }
+  }
+  // Trend radar
+  const tr=(data.trends||[]);
+  if (tr.length){
+    const th=document.createElement("h2"); th.textContent="📡 Trends"; th.style.margin="12px 0 4px"; desk.append(th);
+    for (const t of tr.slice(0,6)){ const d=document.createElement("div"); d.className="readonly"; d.style.margin="2px 0"; d.textContent="• "+t; desk.append(d); }
   }
 }
 setInterval(refreshCompany, 4000); refreshCompany();

@@ -197,7 +197,8 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
         if company is None:
             return Response(status_code=204)
         return JSONResponse({"summary": company.summary(), "okrs": company.okr_view(),
-                             "ceo_cards": company.ceo_cards()})
+                             "ceo_cards": company.ceo_cards(), "hr": company.hr_view(),
+                             "trends": company.trends_view(), "meeting": company.meeting_view()})
 
     @app.post("/hook/{cli}")
     async def hook_receiver(cli: str, request: Request):

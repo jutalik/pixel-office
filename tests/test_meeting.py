@@ -51,6 +51,12 @@ def test_meeting_fails_open_on_bad_functions():
     assert m.status == "completed" and "deferred" in out.decisions[0]   # never raises
 
 
+def test_meeting_synthesis_returning_none_is_deferred():
+    m = Meeting("t", "d", attendees=["a"])
+    out = m.run(position_fn=lambda a, p: "ok", synthesize_fn=lambda pos, p: None)
+    assert isinstance(out, Outcome) and "deferred" in out.decisions[0]   # not None, no crash
+
+
 def test_meeting_outcome_auto_updates_okrs():
     okrs = OKRTree(objective="grow")
     okrs.add_kr(KeyResult("kr1", "weekly posts", target=10, cadence="weekly"))
