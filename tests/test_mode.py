@@ -20,9 +20,10 @@ def test_from_dict_string_and_overrides():
 
 def test_validate_rejects_bad_fields():
     with pytest.raises(ValueError):
-        OperatingMode(drive="Nope").validate()
-    with pytest.raises(ValueError):
-        OperatingMode.from_dict({"drive": "Copilot", "self_tuning": "Maybe"})
+        OperatingMode(drive="Nope").validate()          # direct validate is strict
+    # from_dict is LENIENT (never crashes ingest): a bad override falls back
+    assert OperatingMode.from_dict({"drive": "Copilot", "self_tuning": "Maybe"}
+                                   ).self_tuning == "Guardrailed"
 
 
 def test_one_way_door_always_reaches_ceo_in_every_mode():
