@@ -40,6 +40,53 @@ def test_answers_to_manifest_parses_roles_and_benchmarks():
     assert m.benchmarks == ["a", "b"]
 
 
+def test_answers_to_manifest_parses_key_results():
+    m = answers_to_manifest({"what": "recipes",
+                             "key_results": "publish 10 recipes weekly, reach 1000 signups monthly, launch beta"})
+    assert len(m.key_results) == 3
+    k0, k1, k2 = m.key_results
+    assert k0.target == 10 and k0.cadence == "weekly" and "recipes" in k0.text and "weekly" not in k0.text
+    assert k1.target == 1000 and k1.cadence == "monthly"
+    assert k2.target == 1.0 and k2.cadence == "weekly"   # no number → binary milestone, default weekly
+    assert "10" in m.charter() and "Key Results" in m.charter()
+
+
+def test_parse_krs_keeps_thousands_separated_numbers_as_one_kr():
+    m = answers_to_manifest({"what": "x", "key_results": "reach 1,000 signups monthly, ship 5 features"})
+    assert len(m.key_results) == 2
+    assert m.key_results[0].target == 1000 and m.key_results[0].cadence == "monthly"
+    assert m.key_results[1].target == 5
+
+
+def test_key_results_survive_json_roundtrip_and_seed_the_company(tmp_path):
+    m = Manifest.from_dict({"what": "recipes", "name": "recipeco", "goal": "grow readership",
+                            "key_results": [{"text": "ship 10 features", "target": 10, "cadence": "weekly"},
+                                            {"text": "1000 users", "target": 1000, "cadence": "monthly"}]})
+    project = builder.build(m, tmp_path)
+    saved = json.loads((project / "pixel-office.json").read_text())
+    assert [k["target"] for k in saved["key_results"]] == [10, 1000]
+    # the factory seeds them into a live company → the autonomy loop has real work
+    from pixel_office.company.factory import build_company
+    company = build_company(saved)
+    krs = company.okrs.key_results
+    assert [k.text for k in krs] == ["ship 10 features", "1000 users"]
+    assert [k.cadence for k in krs] == ["weekly", "monthly"]
+    assert company.okrs.progress() == 0.0   # honest: 0% until real progress
+
+
+def test_factory_skips_malformed_krs_without_crashing():
+    from pixel_office.company.factory import build_company
+    company = build_company({"goal": "x", "key_results": [
+        {"text": "good", "target": 5},          # kept
+        {"text": "", "target": 3},              # dropped (no text)
+        "not-a-dict",                            # dropped
+        {"text": "bad target", "target": float("inf")},   # target coerced to 1.0
+    ]})
+    krs = company.okrs.key_results
+    assert [k.text for k in krs] == ["good", "bad target"]
+    assert krs[1].target == 1.0
+
+
 def test_builder_writes_instrumented_skeleton(tmp_path):
     m = Manifest.from_dict({"what": "AI notes", "name": "mednote", "stack": "chat-product"})
     project = builder.build(m, tmp_path)
@@ -133,15 +180,19 @@ def test_scaffolded_backend_smoke_passes(tmp_path):
 
 
 def test_interactive_flow_with_injected_io():
+    # answers must line up with QUESTIONS order:
+    # what, name, goal, niche, benchmarks, stack, roles, key_results, mode
     scripted = iter(["a cooking blog", "CookBot", "weekly recipes", "home cooks", "allrecipes",
-                     "chat-product", "1 writer", "Autopilot"])
+                     "chat-product", "1 writer", "publish 5 recipes weekly", "Autopilot"])
     said = []
     m = run_interactive(lambda _p: next(scripted), lambda _p: True, said.append)
     assert m is not None and m.name == "CookBot" and m.stack == "chat-product"
+    assert m.key_results and m.key_results[0].target == 5   # KR captured from the flow
+    assert m.mode.drive == "Autopilot"
     assert any("charter" in s for s in said)
 
 
 def test_interactive_cancel_writes_nothing():
-    scripted = iter(["a blog", "", "", "", "", "", "", ""])
+    scripted = iter(["a blog", "", "", "", "", "", "", "", ""])
     m = run_interactive(lambda _p: next(scripted), lambda _p: False, lambda _s: None)
     assert m is None

@@ -103,6 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--stack", default="api-service")
     n.add_argument("--benchmarks", help="comma-separated")
     n.add_argument("--roles", help="e.g. '2 writer, 1 editor'")
+    n.add_argument("--kr", help="starting Key Results, e.g. "
+                   "'publish 10 recipes weekly, reach 1000 signups monthly'")
     n.add_argument("--mode", choices=["Manual", "Copilot", "Autopilot"], default="Copilot",
                    help="how autonomous the AI company runs (default: Copilot)")
     n.add_argument("--yes", action="store_true", help="skip confirmation (non-interactive)")
@@ -114,10 +116,13 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--dir", default=".", help="project dir with pixel-office.json (default: cwd)")
     r.add_argument("--port", type=int, default=7717)
     r.add_argument("--host-id", default="local")
-    r.add_argument("--demo", action="store_true",
-                   help="simulate employee activity with the deterministic executor (no real work)")
-    r.add_argument("--live", action="store_true",
-                   help="employees use your real CLIs to do actual work (SPENDS TOKENS)")
+    # demo (simulated) and live (real work) are mutually exclusive — combining
+    # them would fake goal progress while real work spends tokens (dishonest).
+    run_mode = r.add_mutually_exclusive_group()
+    run_mode.add_argument("--demo", action="store_true",
+                          help="simulate employee activity with the deterministic executor (no real work)")
+    run_mode.add_argument("--live", action="store_true",
+                          help="employees use your real CLIs to do actual work (SPENDS TOKENS)")
     r.set_defaults(func=_cmd_run)
     return p
 
@@ -132,7 +137,8 @@ def _cmd_new(args) -> int:
         manifest = answers_to_manifest({
             "what": args.what, "name": args.name or args.what, "goal": args.goal or "",
             "niche": args.niche or "", "stack": args.stack, "benchmarks": args.benchmarks or "",
-            "roles": args.roles or "", "mode": getattr(args, "mode", None),
+            "roles": args.roles or "", "key_results": getattr(args, "kr", None) or "",
+            "mode": getattr(args, "mode", None),
         })
         print(manifest.charter())
         if not args.yes:
@@ -226,10 +232,19 @@ def _cmd_run(args) -> int:
         stop = threading.Event()
         interval = 6.0
 
+        demo = args.demo   # DEMO simulates KR metrics landing so the goal visibly
+                           # grows; --live never fabricates progress (real metrics only)
+
         def _autonomy():
             while not stop.wait(interval):
                 try:
                     loop.tick(_time.monotonic())
+                    if demo:
+                        with company._lock:
+                            for kr in company.okrs.key_results:
+                                if kr.current < kr.target:  # nudge toward target (simulated)
+                                    step = max(1.0, kr.target * 0.05)
+                                    company.okrs.update(kr.id, min(kr.target, kr.current + step))
                 except Exception:
                     pass   # the loop must never crash the server
         thread = threading.Thread(target=_autonomy, name="po-autonomy", daemon=True)

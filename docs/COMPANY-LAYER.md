@@ -132,9 +132,13 @@ everyone else is a role-scoped execution on the shared runtime.
 ## 3. Goals — OKRs
 
 - **Objective** = the CEO's final goal (immutable without the CEO).
-- **Key Results** = monthly then weekly, measurable, **auto-updated by the weekly
-  review memo** from real product metrics (the KPI surface `po new` scaffolds:
-  `/api/telemetry|funnel|quality|growth`).
+- **Key Results** = monthly then weekly, measurable. **Seeded by the user at init**
+  (`po new --kr "publish 10 recipes weekly, reach 1,000 signups monthly"`, or the
+  init Q&A) so the loop has real goals to advance from day one, then **auto-updated
+  by the weekly review memo** from real product metrics (the KPI surface `po new`
+  scaffolds: `/api/telemetry|funnel|quality|growth`). Never fabricated — a project
+  with no KRs honestly sits at 0% until real progress lands. (`--demo` simulates
+  metrics so the goal bar visibly climbs; `--live` only ever uses real metrics.)
 - Closed loop: monitor metrics → weekly review replans KRs toward the Objective →
   tasks. A KR that stalls triggers a *decision memo*, not a standing meeting.
   This loop is `company/autonomy.py` — a **bounded, clock-driven tick** (plan

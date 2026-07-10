@@ -11,6 +11,7 @@ repair").
 """
 from __future__ import annotations
 
+import re
 from typing import Callable, Dict, List, Optional
 
 from .manifest import Manifest
@@ -25,8 +26,36 @@ QUESTIONS = [
     ("benchmarks", "Any projects to benchmark against? (comma-separated)", False),
     ("stack", f"Stack? one of: {', '.join(TEMPLATES)}", False),
     ("roles", "Starting team? (e.g. '2 writer, 1 editor' — blank for a solo founder)", False),
+    ("key_results", "First measurable targets? (e.g. 'publish 10 recipes weekly, reach 1000 signups monthly' "
+                    "— blank to set later)", False),
     ("mode", "How autonomous should the company run? Manual / Copilot / Autopilot (blank=Copilot)", False),
 ]
+
+_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _parse_krs(text: str) -> List[dict]:
+    """Turn plain phrases into KR dicts. Each comma-separated phrase keeps its
+    words as the KR text; the first number in it is the target; a 'weekly'/
+    'monthly' word (default weekly) sets the cadence. No number → target 1 (a
+    binary milestone), so nothing measurable is invented."""
+    out = []
+    # drop thousands separators (a comma between digits) so '1,000' stays one KR
+    text = re.sub(r"(?<=\d),(?=\d)", "", str(text or ""))
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        cadence = "weekly"
+        for c in ("monthly", "weekly"):
+            if re.search(rf"\b{c}\b", part, flags=re.I):
+                cadence = c
+                part = re.sub(rf"\b{c}\b", "", part, flags=re.I).strip()
+                break
+        m = _NUM_RE.search(part)
+        target = float(m.group()) if m else 1.0
+        out.append({"text": part or "goal", "target": target, "cadence": cadence})
+    return out
 
 
 def _parse_roles(text: str) -> List[dict]:
@@ -52,6 +81,7 @@ def answers_to_manifest(answers: Dict[str, str]) -> Manifest:
         "stack": (answers.get("stack") or "api-service").strip() or "api-service",
         "benchmarks": [b.strip() for b in str(answers.get("benchmarks", "")).split(",") if b.strip()],
         "roles": _parse_roles(answers.get("roles", "")),
+        "key_results": _parse_krs(answers.get("key_results", "")),
         "mode": (answers.get("mode") or "").strip() or "Copilot",
     }
     return Manifest.from_dict(d)

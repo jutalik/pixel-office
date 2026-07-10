@@ -116,3 +116,14 @@ def test_cmd_new_into_readonly_dir_degrades(tmp_path, capsys):
         assert "po new:" in capsys.readouterr().err
     finally:
         os.chmod(ro, 0o700)
+
+
+# ---- po run ---------------------------------------------------------------------
+
+def test_run_demo_and_live_are_mutually_exclusive():
+    # combining them would fake goal progress while real work spends tokens
+    parser = cli.build_parser()
+    parser.parse_args(["run", "--demo"])       # each alone is fine
+    parser.parse_args(["run", "--live"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run", "--demo", "--live"])
