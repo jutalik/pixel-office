@@ -15,6 +15,7 @@ from typing import Callable, List, Optional
 
 from ..telemetry.contract import RawEvent
 from .employee import Employee, Team
+from .learning import EmployeeMemory
 
 _task_ids = itertools.count(1)
 
@@ -23,6 +24,7 @@ _task_ids = itertools.count(1)
 class Task:
     title: str
     dri: str                         # the accountable employee id
+    task_class: str = "general"      # kind of work (drives per-class competency)
     id: int = 0
 
     def __post_init__(self):
@@ -59,6 +61,10 @@ class OrgRuntime:
         self.executor = executor
         self.sink = sink
         self._seq = itertools.count(1)
+        self.memories: dict = {}     # employee_id -> EmployeeMemory (evidence-first)
+
+    def memory_of(self, emp_id: str) -> EmployeeMemory:
+        return self.memories.setdefault(emp_id, EmployeeMemory(emp_id))
 
     def _emit(self, emp_id: str, kind: str) -> None:
         if self.sink is None:
@@ -83,11 +89,16 @@ class OrgRuntime:
             result = self.executor(emp, task)
         except Exception as e:
             self._emit(emp.id, "Blocked")
+            self.memory_of(emp.id).record("task_blocked", task.task_class, False, ref=str(task.id))
             return TaskResult(task.id, emp.id, ok=False, summary=f"error: {e}")
         if not isinstance(result, TaskResult):   # a broken executor must not crash the runtime
             self._emit(emp.id, "Blocked")
+            self.memory_of(emp.id).record("task_blocked", task.task_class, False, ref=str(task.id))
             return TaskResult(task.id, emp.id, ok=False, summary="executor returned no valid result")
         self._emit(emp.id, "Done" if result.ok else "Blocked")
+        # learn from the outcome (evidence-first competency; deterministic)
+        self.memory_of(emp.id).record("task_done" if result.ok else "task_blocked",
+                                      task.task_class, result.ok, ref=str(task.id))
         return result
 
     def assign_all(self, tasks: List[Task]) -> List[TaskResult]:
