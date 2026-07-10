@@ -110,6 +110,13 @@ def build_parser() -> argparse.ArgumentParser:
     dep = sub.add_parser("deploy", help="detect the env and recommend a promotion path")
     dep.add_argument("--json", action="store_true")
     dep.set_defaults(func=_cmd_deploy)
+    r = sub.add_parser("run", help="run a scaffolded project as a live AI company")
+    r.add_argument("--dir", default=".", help="project dir with pixel-office.json (default: cwd)")
+    r.add_argument("--port", type=int, default=7717)
+    r.add_argument("--host-id", default="local")
+    r.add_argument("--demo", action="store_true",
+                   help="simulate employee activity with the deterministic executor (no real work)")
+    r.set_defaults(func=_cmd_run)
     return p
 
 
@@ -157,6 +164,43 @@ def _cmd_deploy(args) -> int:
     print(f"  tunnels   : {', '.join(plan.tunnels) or 'none'}")
     print(f"→ recommend : {plan.recommendation}")
     print(f"  phone-reachable: {'yes' if plan.reachable_from_phone else 'no'} — {plan.note}")
+    return 0
+
+
+def _cmd_run(args) -> int:
+    try:
+        import uvicorn
+        from .server import create_app
+    except ImportError:
+        print('po run needs the web extra: pip install "pixel-office[web]"', file=sys.stderr)
+        return 1
+    from .company.factory import build_company
+    from .company.runtime import Task
+
+    manifest_path = Path(args.dir) / "pixel-office.json"
+    if not manifest_path.exists():
+        print(f"po run: no pixel-office.json in {args.dir} — run `po new` first.", file=sys.stderr)
+        return 1
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, ValueError) as e:
+        print(f"po run: can't read {manifest_path}: {e}", file=sys.stderr)
+        return 1
+    company = build_company(manifest, host_id=args.host_id)
+    app = create_app(sources=[], company=company, host_id=args.host_id)
+    company.runtime.sink = app.state.hub.ingest
+    banner = f"{company.name} · {len(company.team)} employees · mode {company.mode.drive}"
+    if args.demo:
+        # DEMO: the deterministic executor SIMULATES work (no real LLM, 0 tokens)
+        # so you can see the office move. This is explicitly not real work.
+        from .company.runtime import Task
+        for emp in company.team.all():
+            company.runtime.assign(Task(f"[demo] orient on: {company.okrs.objective}", dri=emp.id))
+        banner += " · DEMO (simulated activity, no real work)"
+    else:
+        banner += " · employees dormant until given real work (--demo to simulate)"
+    print(f"pixel office → http://127.0.0.1:{args.port}   ({banner})")
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 
 
