@@ -43,6 +43,31 @@ class TranscriptTailer:
         self._parse = _PARSERS[cli]
 
     _HEAD_LEN = 256
+    #: backpressure: max bytes consumed per poll — a cold 25MB transcript is
+    #: digested across ticks instead of one giant latency/memory spike.
+    MAX_READ_BYTES = 4 * 1024 * 1024
+
+    # ---- durable state (Phase 1b): survives restarts without re-emission ----
+
+    def state_dict(self) -> dict:
+        return {
+            "cursor": self._cursor,
+            "watermark": self._watermark,
+            "sig": list(self._sig) if self._sig else None,
+            "head_hex": self._head.hex(),
+        }
+
+    def load_state(self, state: dict) -> None:
+        try:
+            self._cursor = max(0, int(state.get("cursor", 0)))
+            self._watermark = max(0, int(state.get("watermark", 0)))
+            sig = state.get("sig")
+            self._sig = (int(sig[0]), int(sig[1])) if sig else None
+            self._head = bytes.fromhex(state.get("head_hex", ""))
+        except (TypeError, ValueError, IndexError):
+            self._cursor = 0
+            self._sig = None
+            self._head = b""  # corrupt state: re-read; watermark keeps going forward
 
     def _file_changed_identity(self, stat_result, f) -> bool:
         """Detect rotation/replacement even when the new file is not smaller."""
@@ -73,7 +98,7 @@ class TranscriptTailer:
                     self._sig = (st.st_ino, st.st_dev)
                     return []
                 f.seek(self._cursor)
-                chunk = f.read(size - self._cursor)
+                chunk = f.read(min(size - self._cursor, self.MAX_READ_BYTES))
         except OSError:
             return []
         self._sig = (st.st_ino, st.st_dev)

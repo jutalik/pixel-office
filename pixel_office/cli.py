@@ -31,25 +31,27 @@ def _newest_claude_transcript() -> Path | None:
 
 
 def _cmd_up(args) -> int:
-    if args.file:
-        transcript = Path(args.file)
-        if not transcript.exists():
-            print(f"po up: transcript not found: {transcript}", file=sys.stderr)
-            return 1
-    else:
-        transcript = _newest_claude_transcript()
-        if transcript is None:
-            print("po up: no Claude transcripts found — run `po doctor`, or pass --file.",
-                  file=sys.stderr)
-            return 1
     try:
         import uvicorn
         from .server import create_app
     except ImportError:
         print('po up needs the web extra: pip install "pixel-office[web]"', file=sys.stderr)
         return 1
-    app = create_app([transcript], host_id=args.host_id)
-    print(f"pixel office → http://127.0.0.1:{args.port}   (watching {transcript.name})")
+    if args.file:
+        transcript = Path(args.file)
+        if not transcript.exists():
+            print(f"po up: transcript not found: {transcript}", file=sys.stderr)
+            return 1
+        app = create_app([transcript], host_id=args.host_id)
+        watching = transcript.name
+    else:
+        from .telemetry.watcher import SessionWatcher
+        spec = doctor._CLIS["claude"]
+        pattern = str(doctor._resolve_home(spec) / spec["session_glob"])
+        watcher = SessionWatcher(pattern, host_id=args.host_id)
+        app = create_app(sources=[watcher], host_id=args.host_id)
+        watching = f"all active Claude sessions ({pattern})"
+    print(f"pixel office → http://127.0.0.1:{args.port}   (watching {watching})")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 

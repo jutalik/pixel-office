@@ -46,6 +46,13 @@ same-size rewrite detection (inode+head fingerprint) and per-record fail-open la
 Byte-offset + mtime/size + newline-boundary resume (truncation→reset, rotation→rescan); reconnect
 resync; persistence; multi-pane mapping; retention/backpressure.
 **Exit:** survives restarts, rotation, reconnect without losing or duplicating state.
+✅ **Shipped 2026-07-10** (86 tests green): SessionWatcher tails every active session behind the
+glob with durable per-file cursors/watermarks (atomic JSON in `~/.pixel-office/state`, restart
+re-emits nothing, seq stays forward-only); backpressure at the file level (max_files=32, 48 h
+active window) and byte level (4 MB/poll, drained back-to-back with `sleep(0)` yields so a big
+cold-start never blocks serving); rewrite detection via inode + head fingerprint. Measured
+harness caveat recorded in ARCHITECTURE: pooled setups can flush transcripts turn-grained
+(17+ min observed) — one more reason hooks are the primary tier.
 
 ## Phase 2 — Hooks upgrade (opt-in, same CLI)
 `po hooks install` (managed hook script) → live per-event push with tool/subagent granularity,

@@ -35,10 +35,14 @@ so mixed hook/tailer input always yields one honest answer per avatar:
    session logs. Works for any CLI, needs no install → **zero first-run failure**. Lower fidelity
    (retrospective pulses), so it is the default that "always works," with hooks as a one-click upgrade.
 
-**Fidelity caveat (measured):** Claude's transcript is *silent* while the agent waits on a
+**Fidelity caveats (measured):** Claude's transcript is *silent* while the agent waits on a
 permission/question prompt, so tailer-only mode can never show `waiting` — the "this agent needs
 me" signal arrives with the hooks upgrade. The UI and `po doctor` say so explicitly instead of
-letting a blocked agent read as `working`.
+letting a blocked agent read as `working`. Additionally, transcript **flush cadence varies by
+harness**: vanilla Claude Code writes per API response (seconds), but pooled/wrapped setups can
+buffer a whole *turn* (measured 17+ minutes on a long agentic turn) — during which the tailer
+honestly reports staleness while the agent is hard at work. Hooks fire live regardless of flush
+cadence, which is why they are the primary tier.
 
 Avatar state is **server-derived** (a pure view function, no coordinate database) and pushed over a
 WebSocket as **semantic deltas** (a state enum + destination, never raw coordinates). See

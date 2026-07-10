@@ -28,10 +28,15 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 class OfficeHub:
-    """Holds reducer state, polls tailers, fans out snapshot/deltas."""
+    """Holds reducer state, polls event sources, fans out snapshot/deltas.
 
-    def __init__(self, tailers: List[TranscriptTailer]):
-        self.tailers = tailers
+    A source is anything with .poll() -> List[RawEvent] (TranscriptTailer,
+    SessionWatcher, and later the hook receiver) and optionally .close().
+    """
+
+    def __init__(self, sources: List):
+        self.tailers = sources
+        self.last_batch_size = 0
         self.state = initial_state()
         self.last_view: List[dict] = []
         self.clients: set = set()
@@ -45,9 +50,11 @@ class OfficeHub:
 
     def tick_sync(self) -> List[dict]:
         """One poll cycle: ingest events, recompute view, return changed rows."""
+        self.last_batch_size = 0
         for tailer in self.tailers:
             for ev in tailer.poll():
                 self.state = reduce(self.state, ev)
+                self.last_batch_size += 1
         new_view = self.current_view()
         old = {self._row_key(r): r for r in self.last_view}
         changed = [r for r in new_view if old.get(self._row_key(r)) != r]
@@ -62,7 +69,10 @@ class OfficeHub:
                     await self._broadcast({"type": "delta", "rows": changed})
             except Exception:
                 pass  # fail open — telemetry must never kill the dashboard
-            await asyncio.sleep(POLL_INTERVAL_S)
+            # while a capped-read source is still draining history (cold start on
+            # a big transcript), keep ticking back-to-back — sleep(0) still yields
+            # to the event loop so HTTP/ws stay responsive throughout.
+            await asyncio.sleep(0 if self.last_batch_size else POLL_INTERVAL_S)
 
     async def _broadcast(self, payload: dict):
         message = json.dumps(payload)
@@ -83,16 +93,26 @@ class OfficeHub:
         if self._task:
             self._task.cancel()
             self._task = None
+        for src in self.tailers:
+            close = getattr(src, "close", None)
+            if close:
+                try:
+                    close()  # persist durable cursors on shutdown
+                except Exception:
+                    pass
 
 
-def create_app(transcripts: List[Path], *, host_id: str = "local") -> FastAPI:
-    tailers = [TranscriptTailer(p, host_id=host_id) for p in transcripts]
-    hub = OfficeHub(tailers)
+def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "local",
+               sources: Optional[List] = None) -> FastAPI:
+    src = list(sources) if sources else []
+    for p in (transcripts or []):
+        src.append(TranscriptTailer(p, host_id=host_id))
+    hub = OfficeHub(src)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        hub.tick_sync()  # cold-start backfill before the first client connects
-        hub.start()
+        hub.tick_sync()  # one synchronous tick so small files are ready instantly;
+        hub.start()      # large histories drain in the loop without blocking startup
         yield
         await hub.stop()
 
