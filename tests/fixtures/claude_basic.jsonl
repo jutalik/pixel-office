@@ -1,0 +1,7 @@
+{"host_id":"h1","cli":"claude","session_id":"s1","agent_id":"main","seq":1,"ts":"2026-07-10T00:00:01Z","source":"tailer","kind":"SessionStart"}
+{"host_id":"h1","cli":"claude","session_id":"s1","agent_id":"main","seq":2,"ts":"2026-07-10T00:00:02Z","source":"tailer","kind":"UserPromptSubmit","meta":{"prompt":"this must be stripped on ingest"}}
+{"host_id":"h1","cli":"claude","session_id":"s1","agent_id":"main","seq":3,"ts":"2026-07-10T00:00:03Z","source":"hook","kind":"PreToolUse","meta":{"tool":"Bash"}}
+{"host_id":"h1","cli":"claude","session_id":"s1","agent_id":"sub1","seq":4,"ts":"2026-07-10T00:00:04Z","source":"hook","kind":"SubagentStart","parent_agent_id":"main"}
+{"host_id":"h1","cli":"claude","session_id":"s1","agent_id":"sub1","seq":5,"ts":"2026-07-10T00:00:05Z","source":"hook","kind":"SubagentStop","parent_agent_id":"main"}
+{"host_id":"h1","cli":"claude","session_id":"s1","agent_id":"main","seq":6,"ts":"2026-07-10T00:00:06Z","source":"hook","kind":"PostToolUse"}
+{"host_id":"h1","cli":"claude","session_id":"s1","agent_id":"main","seq":7,"ts":"2026-07-10T00:00:07Z","source":"hook","kind":"Stop"}
