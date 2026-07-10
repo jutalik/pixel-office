@@ -17,6 +17,7 @@ from typing import Callable, List, Optional
 
 from .company import Company
 from .memo import DecisionMemo
+from .routing import best_owner
 from .runtime import Task
 
 
@@ -35,10 +36,11 @@ PlannerFn = Callable[[Company, object], Task]
 
 
 def default_planner(company: Company, kr) -> Task:
-    # assign to the first employee (real routing/skills matching is future work);
-    # task_class = the KR id so competency accrues per work-stream
-    owner = company.team.all()[0].id if len(company.team) else "unassigned"
-    return Task(title=f"advance KR: {kr.text}", dri=owner, task_class=kr.id)
+    # route by role fit + proven competency (routing.best_owner), not always the
+    # first hire; task_class = the KR id so competency accrues per work-stream
+    owner = best_owner(company, kr)
+    return Task(title=f"advance KR: {kr.text}",
+                dri=owner.id if owner else "unassigned", task_class=kr.id)
 
 
 def _due(last: Optional[float], now: float, every: float) -> bool:
