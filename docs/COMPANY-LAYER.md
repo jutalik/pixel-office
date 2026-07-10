@@ -67,7 +67,6 @@ the mode is how much of the driving the AI team does:
 ```
 operating_mode:
   drive:        Manual | Copilot | Autopilot   # ← the main dial (who drives)
-  autonomy:     Tight | Balanced | Loose        # default approval-envelope width
   ceo_updates:  Everything | Key decisions | Weekly digest   # how much reaches the CEO
   culture:      Balanced | Hyper-growth | Steady | Research   # preset (§1), overridable
   self_tuning:  Off | Guardrailed | On          # may the growth engine tune the process?
@@ -82,8 +81,10 @@ field stays overridable):
 | **🚙 Copilot** *(shared)* | You set the direction; the team runs the day-to-day and asks you for the big turns. | Team proposes, CEO approves | KR replans + medium-risk actions |
 | **🚀 Autopilot** *(self-running)* | The team runs the whole company toward your goal; you set the destination and only sign off on one-way doors. | Growth engine replans on its own | one-way doors + a weekly digest |
 
-- The mode sets the **default envelope width and escalation thresholds** in §4 and
-  how much lands in the CEO queue in §6 — nothing else in the design changes.
+- The mode only sets **how much reaches the CEO** (§6) and who plans (§3). It does
+  **not** cap or throttle employees: they work unconstrained and bold. The ONLY
+  hard gate is an irreversible **one-way door** (§4) — everything reversible just
+  happens. (Budgets exist for cost accounting, not as autonomy levels.)
 - Per-role and per-action overrides still apply (e.g. even in `Autopilot`, terminating
   an employee or a prod deploy is always a one-way door → CEO).
 - If `self_tuning` ≠ Off, the growth engine (§3) may tune culture/cadence *within
