@@ -3,7 +3,7 @@
 The layer that runs an autonomous AI company on top of the pixel-office foundation
 (telemetry/avatars + control plane + scaffold). Designed with a Codex + Grok
 deliberation (both converged) and modeled on how today's fastest-growing companies
-actually operate. **Status: design.**
+actually operate. **Status: BUILT (2026-07-10) — all 6 phases + full loop, deterministic + e2e-tested, ~55 tests. The real CLI executor is wired (opt-in; spends tokens).**
 
 ## 0. The one decision that changes everything
 
