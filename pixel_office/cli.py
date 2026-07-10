@@ -22,9 +22,9 @@ def _cmd_doctor(args) -> int:
 
 
 def _newest_claude_transcript() -> Path | None:
-    spec = doctor._CLIS["claude"]
-    home = doctor._resolve_home(spec)
-    matches = _glob.glob(str(home / spec["session_glob"]))
+    from .adapters import registry
+    pattern = doctor.session_pattern(registry.get("claude"))
+    matches = _glob.glob(pattern) if pattern else []
     if not matches:
         return None
     return Path(max(matches, key=os.path.getmtime))
@@ -49,18 +49,19 @@ def _cmd_up(args) -> int:
         app = create_app([transcript], host_id=args.host_id, hook_token=hook_token)
         watching = transcript.name
     else:
-        from .telemetry.normalize import known_clis
+        from .adapters import registry
         from .telemetry.watcher import SessionWatcher
         watchers, names = [], []
-        for cli_name in known_clis():  # every CLI with a normalize table + parser
-            spec = doctor._CLIS.get(cli_name)
-            if not spec or not spec["session_glob"]:
+        for a in registry.all_adapters():
+            # jsonl tailer sources with a verified parser that are installed here;
+            # missing CLIs degrade gracefully (never block boot)
+            if a.session_kind != "jsonl" or a.parse_line is None:
                 continue
-            if not doctor._which(cli_name, spec["extra_bin_dirs"]):
-                continue  # not installed — degrade gracefully, never fail boot
-            pattern = str(doctor._resolve_home(spec) / spec["session_glob"])
-            watchers.append(SessionWatcher(pattern, host_id=args.host_id, cli=cli_name))
-            names.append(cli_name)
+            if not doctor.which(a):
+                continue
+            pattern = doctor.session_pattern(a)
+            watchers.append(SessionWatcher(pattern, host_id=args.host_id, cli=a.name))
+            names.append(a.name)
         if not watchers:
             print("po up: no supported CLIs found — run `po doctor`, or pass --file.",
                   file=sys.stderr)

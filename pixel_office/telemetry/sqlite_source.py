@@ -24,10 +24,12 @@ from typing import Callable, List, Optional, Tuple
 
 from .contract import RawEvent
 
+from ..adapters import registry
+
 RowMapper = Callable[[sqlite3.Row], Optional[Tuple[str, str, Optional[str], dict]]]
 
-# Verified row mappers, keyed by cli. Empty until a live schema is confirmed —
-# see docs: adding an agy/opencode mapper requires a real DB to verify columns.
+# Dynamically-registered mappers (tests, plugins). Verified per-CLI mappers live
+# on the adapter (adapters/<cli>.py sets sqlite_mapper once a schema is confirmed).
 _MAPPERS: dict = {}
 
 
@@ -35,8 +37,14 @@ def register_mapper(cli: str, mapper: RowMapper) -> None:
     _MAPPERS[cli] = mapper
 
 
+def _mapper_for(cli: str) -> Optional[RowMapper]:
+    # a dynamically-registered mapper overrides the adapter default (tests/plugins)
+    return _MAPPERS.get(cli) or registry.sqlite_mapper_for(cli)
+
+
 def known_mappers() -> tuple:
-    return tuple(_MAPPERS)
+    reg = {a.name for a in registry.all_adapters() if a.sqlite_mapper is not None}
+    return tuple(sorted(reg | set(_MAPPERS)))
 
 
 class SqliteSessionSource:
@@ -56,7 +64,7 @@ class SqliteSessionSource:
         self.host_id = host_id
         self.cli = cli
         self.query = query
-        self.mapper = mapper or _MAPPERS.get(cli)
+        self.mapper = mapper or _mapper_for(cli)
         if self.mapper is None:
             raise ValueError(f"no verified sqlite mapper for cli {cli!r}")
         self.fallback_session_id = fallback_session_id or self.db_path.parent.name

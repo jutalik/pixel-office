@@ -19,40 +19,26 @@ import json
 from pathlib import Path
 from typing import List, Optional
 
-from . import claude_transcript, codex_rollout, grok_events
+from ..adapters import registry
 from .contract import RawEvent
-
-_PARSERS = {
-    "claude": claude_transcript.parse_line,
-    "codex": codex_rollout.parse_line,
-    "grok": grok_events.parse_line,
-}
-
-# How to name a session when a record carries no session id. Default = file
-# stem (claude=<uuid>.jsonl, codex=rollout-<...>.jsonl are unique). Grok's file
-# is always "events.jsonl", so its identity is the parent-dir uuid instead.
-_SESSION_FALLBACK = {
-    "grok": lambda p: p.parent.name,
-}
 
 
 class TranscriptTailer:
     def __init__(self, path: Path, *, host_id: str, cli: str = "claude",
                  fallback_session_id: Optional[str] = None):
-        if cli not in _PARSERS:
+        parser = registry.parser_for(cli)
+        if parser is None:
             raise ValueError(f"no transcript parser for cli {cli!r}")
         self.path = Path(path)
         self.host_id = host_id
         self.cli = cli
-        if fallback_session_id:
-            self.fallback_session_id = fallback_session_id
-        else:
-            self.fallback_session_id = _SESSION_FALLBACK.get(cli, lambda p: p.stem)(self.path)
+        self.fallback_session_id = (fallback_session_id
+                                    or registry.session_id_for(cli, self.path))
         self._cursor = 0        # byte offset past the last consumed newline
         self._watermark = 0     # last minted seq (forward-only, survives resets)
         self._sig = None        # (st_ino, st_dev) of the file we are cursored into
         self._head = b""        # first bytes of the consumed file (rewrite fingerprint)
-        self._parse = _PARSERS[cli]
+        self._parse = parser
 
     _HEAD_LEN = 256
     #: backpressure: max bytes consumed per poll — a cold 25MB transcript is

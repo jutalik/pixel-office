@@ -32,7 +32,11 @@ What Pixel Office knows about each CLI's telemetry, and how verified it is.
 - **hermes** is hook-capable via a plugin dir (Orca ships a hermes plugin), but
   no session-file store was located, so it has no tailer path.
 
-- Adding a verified adapter: probe the real session format, add a `parse_line`
-  (JSONL) or register a `SqliteSessionSource` mapper, add the CLI's normalize
-  table + `TAILER_DERIVABLE`, and list its emitted kinds in
-  `telemetry/adapters.py` — the conformance test then guards it against drift.
+- **Adding or updating a CLI = one file.** Create `pixel_office/adapters/<cli>.py`
+  defining an `ADAPTER = Adapter(...)` — its `kinds` (kind→activity table),
+  `emitted_kinds` (what its parser produces), session spec (`session_kind` +
+  `session_glob`/`session_sqlite`), `parse_line` (JSONL) or `sqlite_mapper`
+  (SQLite, only once verified against a live DB), hooks, home/binary — then list
+  it in `adapters/registry.py`. `doctor`, `normalize`, the tailer, the SQLite
+  source, and the conformance test all read from the registry, so nothing else
+  changes and drift fails CI automatically.
