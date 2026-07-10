@@ -211,8 +211,38 @@ def _cmd_run(args) -> int:
         banner += " · DEMO (simulated activity, no real work)"
     else:
         banner += " · employees dormant until given real work (--demo to simulate)"
+    # autonomy: the company runs itself toward the goal on a background tick
+    # (only in demo/live — dormant default stays idle). Uses the hub lock for
+    # thread-safe ingest.
+    stop = None
+    thread = None
+    if args.demo or args.live:
+        import threading
+        import time as _time
+
+        from .company.autonomy import AutonomyLoop
+        loop = AutonomyLoop(company, max_dispatch=2, review_every_s=30,
+                            radar_every_s=60, hr_every_s=90)
+        stop = threading.Event()
+        interval = 6.0
+
+        def _autonomy():
+            while not stop.wait(interval):
+                try:
+                    loop.tick(_time.monotonic())
+                except Exception:
+                    pass   # the loop must never crash the server
+        thread = threading.Thread(target=_autonomy, name="po-autonomy", daemon=True)
+        thread.start()
+        banner += " · autonomy running"
     print(f"pixel office → http://127.0.0.1:{args.port}   ({banner})")
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    finally:
+        if stop is not None:
+            stop.set()
+        if thread is not None:
+            thread.join(timeout=interval + 5)  # let an in-flight tick finish cleanly
     return 0
 
 

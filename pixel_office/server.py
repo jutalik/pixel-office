@@ -11,6 +11,7 @@ import asyncio
 import hmac
 import json
 import os
+import threading
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 from datetime import datetime, timezone
@@ -65,6 +66,9 @@ class OfficeHub:
     def __init__(self, sources: List):
         self.tailers = sources
         self.last_batch_size = 0
+        # the autonomy loop may ingest from a background thread while the asyncio
+        # poll loop also reduces — guard all state access with one lock
+        self._state_lock = threading.Lock()
         self.state = initial_state()
         self.last_view: List[dict] = []
         self.clients: set = set()
@@ -74,28 +78,31 @@ class OfficeHub:
         return (row["host_id"], row["cli"], row["session_id"], row["agent_id"])
 
     def current_view(self) -> List[dict]:
-        return view(self.state, datetime.now(timezone.utc))
+        with self._state_lock:
+            return view(self.state, datetime.now(timezone.utc))
 
     def ingest(self, ev) -> List[dict]:
-        """Apply one event immediately (hook path) and return changed rows."""
-        self.state = reduce(self.state, ev)
-        new_view = self.current_view()
-        old = {self._row_key(r): r for r in self.last_view}
-        changed = [r for r in new_view if old.get(self._row_key(r)) != r]
-        self.last_view = new_view
+        """Apply one event immediately (hook / autonomy path) and return changed rows."""
+        with self._state_lock:
+            self.state = reduce(self.state, ev)
+            new_view = view(self.state, datetime.now(timezone.utc))
+            old = {self._row_key(r): r for r in self.last_view}
+            changed = [r for r in new_view if old.get(self._row_key(r)) != r]
+            self.last_view = new_view
         return changed
 
     def tick_sync(self) -> List[dict]:
         """One poll cycle: ingest events, recompute view, return changed rows."""
         self.last_batch_size = 0
-        for tailer in self.tailers:
-            for ev in tailer.poll():
-                self.state = reduce(self.state, ev)
-                self.last_batch_size += 1
-        new_view = self.current_view()
-        old = {self._row_key(r): r for r in self.last_view}
-        changed = [r for r in new_view if old.get(self._row_key(r)) != r]
-        self.last_view = new_view
+        with self._state_lock:   # one lock, no re-entrant current_view() call
+            for tailer in self.tailers:
+                for ev in tailer.poll():
+                    self.state = reduce(self.state, ev)
+                    self.last_batch_size += 1
+            new_view = view(self.state, datetime.now(timezone.utc))
+            old = {self._row_key(r): r for r in self.last_view}
+            changed = [r for r in new_view if old.get(self._row_key(r)) != r]
+            self.last_view = new_view
         return changed
 
     async def _loop(self):
@@ -196,9 +203,13 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
         # its "Requires Company Layer" gates. Real data lights them up otherwise.
         if company is None:
             return Response(status_code=204)
-        return JSONResponse({"summary": company.summary(), "okrs": company.okr_view(),
-                             "ceo_cards": company.ceo_cards(), "hr": company.hr_view(),
-                             "trends": company.trends_view(), "meeting": company.meeting_view()})
+        # hold the company lock so the read is a consistent snapshot vs the
+        # autonomy thread mutating memos/backlog/trends concurrently
+        with company._lock:
+            body = {"summary": company.summary(), "okrs": company.okr_view(),
+                    "ceo_cards": company.ceo_cards(), "hr": company.hr_view(),
+                    "trends": company.trends_view(), "meeting": company.meeting_view()}
+        return JSONResponse(body)
 
     @app.post("/hook/{cli}")
     async def hook_receiver(cli: str, request: Request):

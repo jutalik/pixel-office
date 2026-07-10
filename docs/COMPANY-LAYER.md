@@ -3,7 +3,7 @@
 The layer that runs an autonomous AI company on top of the pixel-office foundation
 (telemetry/avatars + control plane + scaffold). Designed with a Codex + Grok
 deliberation (both converged) and modeled on how today's fastest-growing companies
-actually operate. **Status: BUILT (2026-07-10) — all 6 phases + full loop, deterministic + e2e-tested, ~55 tests. The real CLI executor is wired (opt-in; spends tokens).**
+actually operate. **Status: BUILT (2026-07-10) — all 6 phases + full loop, deterministic + e2e-tested, ~60 tests. The real CLI executor is wired (opt-in; spends tokens). The autonomy loop (§3) drives the company on a background tick under `po run --demo/--live`.**
 
 ## 0. The one decision that changes everything
 
@@ -137,6 +137,10 @@ everyone else is a role-scoped execution on the shared runtime.
   `/api/telemetry|funnel|quality|growth`).
 - Closed loop: monitor metrics → weekly review replans KRs toward the Objective →
   tasks. A KR that stalls triggers a *decision memo*, not a standing meeting.
+  This loop is `company/autonomy.py` — a **bounded, clock-driven tick** (plan
+  toward stalled KRs → dispatch ≤N backlog tasks → cadence-gated review/radar/HR,
+  each independently fail-open). `po run --demo/--live` runs it on a background
+  daemon thread; cost scales with *decisions*, not wall-clock (dormant when idle).
 - **Growth engine (meta-loop):** the weekly review also scores *KR velocity* and
   adapts the operating model itself — cadence, which practices earn their keep,
   where to make a bold bet, which role to add/drop — always to raise growth rate

@@ -5,6 +5,7 @@ the org runtime. Exposes a small summary + the CEO's card queue for the dashboar
 """
 from __future__ import annotations
 
+import threading
 from typing import Optional
 
 from . import hr as hr_mod
@@ -30,6 +31,17 @@ class Company:
         self.radar = TrendRadar(objective=objective, niche=niche, search_fn=search_fn)
         self._trends: list = []
         self._last_meeting: Optional[dict] = None
+        self.backlog: list = []          # pending Tasks (autonomy loop drains this)
+        # guards company state (memos/backlog/trends/okrs/memories) when the
+        # autonomy thread mutates it while the API reads it. RLock: summary() ->
+        # hr_review() etc. re-enter safely.
+        self._lock = threading.RLock()
+
+    def add_task(self, title: str, dri: str, task_class: str = "general"):
+        from .runtime import Task
+        t = Task(title=title, dri=dri, task_class=task_class)
+        self.backlog.append(t)
+        return t
 
     def hold_meeting(self, topic: str, decision_to_make: str, attendees, *,
                      position_fn, synthesize_fn, packet: Optional[dict] = None):
