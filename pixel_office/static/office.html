@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self' ws: wss:; img-src data:;">
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; manifest-src 'self';">
+<meta name="theme-color" content="#14141f">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg">
 <title>pixel office</title>
 <style>
   :root { --bg:#14141f; --floor:#191926; --room:#1e1e2e; --ink:#cdd6f4; --dim:#6c7086; --line:#2a2a3c;
@@ -48,6 +52,17 @@
   #empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
            color:var(--dim); font-size:12px; }
   #more { grid-column:1/-1; color:var(--dim); font-size:11px; text-align:center; padding:8px; }
+  #banner { display:none; background:#f9e2af22; color:#f9e2af; font-size:11px; padding:6px 18px;
+            border-bottom:1px solid #f9e2af44; }
+  #banner.show { display:block; }
+  /* mobile: single-column rooms, larger touch targets, read-only monitor */
+  @media (max-width:600px){
+    #floor { grid-template-columns:1fr; padding:10px; gap:10px; }
+    #legend { display:none; }
+    .avatar { width:64px; }
+    .face { font-size:34px; }
+    header { padding:10px 14px; }
+  }
   @media (prefers-reduced-motion: reduce){ .avatar{transition:none} }
   @media (prefers-reduced-motion: no-preference){
     .working:not(.stale):not(.disconnected) .face{ animation:bob 1.3s ease-in-out infinite; }
@@ -65,9 +80,16 @@
     <b class="k-blocked">● blocked</b><b class="k-done">● wrapped</b>
   </div>
 </header>
+<div id="banner"></div>
 <div id="floor"><div id="empty">no agents yet — run a CLI (claude / codex / grok) and watch.</div></div>
 <script>
 "use strict";
+const banner = document.getElementById("banner");
+function setBanner(msg){ if(msg){banner.textContent=msg;banner.classList.add("show");}
+                        else banner.classList.remove("show"); }
+// PWA: cache the last snapshot so reopening (even offline) shows last-known state
+function saveSnapshot(list){ try{ localStorage.setItem("po:last", JSON.stringify(list)); }catch(e){} }
+function loadSnapshot(){ try{ return JSON.parse(localStorage.getItem("po:last")||"[]"); }catch(e){ return []; } }
 const FACES = { working:"🧑‍💻", waiting:"🙋", blocked:"🆘", done:"😌" };
 const MAX_RENDER = 80;                         // LOD: cap DOM avatars on weak devices
 const rows = new Map();
@@ -120,26 +142,31 @@ function render(){
 }
 document.addEventListener("visibilitychange", render);
 
+function bubbleFor(r){ return r.activity==="waiting" ? "needs you"
+                     : r.activity==="done" ? "wrapped up"
+                     : r.activity==="blocked" ? "blocked" : "working"; }
+
+// paint last-known state immediately (offline / before ws connects)
+for (const r of loadSnapshot()){ r.speech = bubbleFor(r); rows.set(key(r), r); }
+if (rows.size){ setBanner("showing last-known state — connecting for live…"); render(); }
+
 let retry = 500;
 function connect(){
   const ws = new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/ws/office`);
-  ws.onopen = () => { conn.textContent="live"; retry=500; };
+  ws.onopen = () => { conn.textContent="live"; retry=500; setBanner(""); };
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === "snapshot") rows.clear();
-    for (const r of msg.rows){
-      // derive a short honest speech bubble from metadata only (no prompt text)
-      r.speech = r.activity==="waiting" ? "needs you"
-               : r.activity==="done" ? "wrapped up"
-               : r.activity==="blocked" ? "blocked" : "working";
-      rows.set(key(r), r);
-    }
+    for (const r of msg.rows){ r.speech = bubbleFor(r); rows.set(key(r), r); }
+    saveSnapshot([...rows.values()]);
     render();
   };
-  ws.onclose = () => { conn.textContent="reconnecting…"; setTimeout(connect, retry);
-                       retry = Math.min(retry*2, 10000); };
+  ws.onclose = () => { conn.textContent="offline";
+                       setBanner("offline — showing last-known state. reopen when your office is reachable.");
+                       setTimeout(connect, retry); retry = Math.min(retry*2, 10000); };
 }
 connect();
+if ("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
 </script>
 </body>
 </html>

@@ -39,7 +39,7 @@ po = "pixel_office.cli:main"
 include = ["pixel_office*"]
 
 [tool.setuptools.package-data]
-pixel_office = ["static/*.html"]
+pixel_office = ["static/*.html", "static/*.js", "static/*.svg", "static/*.webmanifest"]
 
 [tool.setuptools.exclude-package-data]
 "*" = []

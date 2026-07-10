@@ -34,6 +34,24 @@ def test_index_serves_office_page(transcript):
         assert "room" in r.text  # game overlay
 
 
+def test_pwa_assets_served(transcript):
+    import json as _json
+    with TestClient(create_app([transcript])) as client:
+        m = client.get("/manifest.webmanifest")
+        assert m.status_code == 200 and "manifest" in m.headers["content-type"]
+        data = _json.loads(m.text)
+        assert data["name"] == "Pixel Office" and data["display"] == "standalone"
+        assert data["icons"] and data["icons"][0]["src"] == "/icon.svg"
+        sw = client.get("/sw.js")
+        assert sw.status_code == 200 and "javascript" in sw.headers["content-type"]
+        assert "caches" in sw.text  # a real service worker
+        assert client.get("/icon.svg").headers["content-type"] == "image/svg+xml"
+        # office page wires the PWA + offline snapshot + responsive mobile mode
+        page = client.get("/").text
+        assert "/manifest.webmanifest" in page and "serviceWorker" in page
+        assert "po:last" in page and "max-width:600px" in page
+
+
 def test_overlay_off_serves_plain_page(transcript, monkeypatch):
     monkeypatch.setenv("PO_OVERLAY", "off")
     with TestClient(create_app([transcript])) as client:

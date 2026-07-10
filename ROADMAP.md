@@ -123,6 +123,13 @@ One responsive app, read-only monitor mode, same ws feed with reduced rendering,
 PWA caches shell + last snapshot. Reachability is **coupled to deploy/tunnel** (a phone cannot reach
 localhost), so mobile monitoring becomes available only after live promotion.
 **Exit:** phone shows live status once promoted; stale/unreachable clearly labeled.
+✅ **Shipped 2026-07-10** (137 tests green). One responsive app (single-column rooms + larger touch
+targets under 600px, verified by a 390px screenshot); installable PWA (`/manifest.webmanifest`,
+`/sw.js` at root scope, `/icon.svg`); the service worker caches the shell and the client persists
+the last snapshot to localStorage so reopening shows last-known state instantly (even offline); an
+honest banner distinguishes live vs "offline — last-known state", and the SW comment states it never
+implies the local office is remotely reachable on its own (reachability comes from `po deploy`).
+The office is inherently read-only (no mutation controls), so mobile is safe by construction.
 
 ## What can run in parallel (after the Phase 0 contract freezes)
 `po doctor`; dashboard shell; recorded telemetry fixtures; the hook installer; multi-CLI adapter

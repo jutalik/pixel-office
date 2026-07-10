@@ -1,0 +1,14 @@
+{
+  "name": "Pixel Office",
+  "short_name": "Office",
+  "description": "Watch your AI company — a live pixel office of your CLI agents.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#14141f",
+  "theme_color": "#14141f",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

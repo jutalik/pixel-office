@@ -7,11 +7,11 @@ agent, subagent, LLM call, and workflow shows up as an **avatar** that moves bet
 rooms and shows what it's doing — driven entirely by telemetry from the tools you
 already use (Claude Code, Codex, Grok, Gemini, and more).
 
-> **Status: Phases 0–4 shipped** (111 tests green, CI green). A live office already works:
-> `po up` watches your Claude / Codex / Grok sessions and renders each agent as an avatar that
-> moves between team rooms and shows what it's doing — tailer by default, live hooks as an
-> opt-in upgrade. Phases 5–7 (product scaffold + conversational init, control plane + deploy,
-> mobile/PWA) are next — see [`ROADMAP.md`](ROADMAP.md).
+> **Status: the roadmap (Phases 0–7) is built** — 137 tests green, CI green. `po up` watches your
+> Claude / Codex / Grok sessions and renders each agent as an avatar that moves between team rooms;
+> `po hooks install` upgrades to live per-event updates; `po new` scaffolds an instrumented product
+> from a short conversation; `po deploy` picks a promotion path; and the dashboard is an installable,
+> mobile-friendly PWA. See [`ROADMAP.md`](ROADMAP.md) for what each phase delivered.
 
 ## Quickstart
 
@@ -20,6 +20,8 @@ pip install -e ".[web]"
 po doctor                 # which CLIs are installed, hook-capable, and tailable
 po up                     # → http://127.0.0.1:7717  (watches all active sessions)
 po hooks install          # opt-in: live per-event updates + `waiting`/subagent avatars
+po new                    # scaffold a new instrumented project (conversational)
+po deploy                 # detect docker/tunnel/localhost → recommend a promotion path
 PO_OVERLAY=off po up      # headless core: a plain status table, no game layer
 ```
 

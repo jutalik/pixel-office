@@ -145,6 +145,22 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
     async def index():
         return _index_page()
 
+    @app.get("/manifest.webmanifest")
+    async def manifest():
+        return Response((STATIC_DIR / "manifest.webmanifest").read_text(),
+                        media_type="application/manifest+json")
+
+    @app.get("/sw.js")
+    async def service_worker():
+        # served at root so its scope covers the whole app
+        return Response((STATIC_DIR / "sw.js").read_text(),
+                        media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+    @app.get("/icon.svg")
+    async def icon():
+        return Response((STATIC_DIR / "icon.svg").read_text(), media_type="image/svg+xml")
+
     @app.get("/api/office")
     async def office_snapshot():
         return JSONResponse({"rows": hub.current_view()})
