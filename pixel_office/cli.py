@@ -49,12 +49,24 @@ def _cmd_up(args) -> int:
         app = create_app([transcript], host_id=args.host_id, hook_token=hook_token)
         watching = transcript.name
     else:
+        from .telemetry.normalize import known_clis
         from .telemetry.watcher import SessionWatcher
-        spec = doctor._CLIS["claude"]
-        pattern = str(doctor._resolve_home(spec) / spec["session_glob"])
-        watcher = SessionWatcher(pattern, host_id=args.host_id)
-        app = create_app(sources=[watcher], host_id=args.host_id, hook_token=hook_token)
-        watching = f"all active Claude sessions ({pattern})"
+        watchers, names = [], []
+        for cli_name in known_clis():  # every CLI with a normalize table + parser
+            spec = doctor._CLIS.get(cli_name)
+            if not spec or not spec["session_glob"]:
+                continue
+            if not doctor._which(cli_name, spec["extra_bin_dirs"]):
+                continue  # not installed — degrade gracefully, never fail boot
+            pattern = str(doctor._resolve_home(spec) / spec["session_glob"])
+            watchers.append(SessionWatcher(pattern, host_id=args.host_id, cli=cli_name))
+            names.append(cli_name)
+        if not watchers:
+            print("po up: no supported CLIs found — run `po doctor`, or pass --file.",
+                  file=sys.stderr)
+            return 1
+        app = create_app(sources=watchers, host_id=args.host_id, hook_token=hook_token)
+        watching = f"all active sessions: {', '.join(names)}"
     po_hooks.write_endpoint_file(args.port, hook_token)  # hooks find us here
     hooks_state = "on" if po_hooks.status().get("installed") else "off — `po hooks install` for live mode"
     print(f"pixel office → http://127.0.0.1:{args.port}   (watching {watching}; hooks {hooks_state})")

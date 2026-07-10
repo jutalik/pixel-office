@@ -19,11 +19,12 @@ import json
 from pathlib import Path
 from typing import List, Optional
 
-from .claude_transcript import parse_line
+from . import claude_transcript, codex_rollout
 from .contract import RawEvent
 
 _PARSERS = {
-    "claude": parse_line,
+    "claude": claude_transcript.parse_line,
+    "codex": codex_rollout.parse_line,
 }
 
 

@@ -44,14 +44,27 @@ _CLAUDE = {
     "StopFailure": "blocked",            # turn died on an API error — needs a human
 }
 
+# Codex rollout vocabulary (see codex_rollout.py; verified 2026-07-10).
+_CODEX = {
+    "TaskStarted": "working",
+    "UserMessage": "working",
+    "AgentMessage": "working",
+    "Reasoning": "working",
+    "FunctionCall": "working",
+    "FunctionCallOutput": "working",
+    "TaskComplete": "done",
+}
+
 _TABLES = {
     "claude": _CLAUDE,
+    "codex": _CODEX,
 }
 
 # Which activity states each CLI's TAILER can actually produce (hooks produce
 # the full table). Drives honest fidelity reporting in doctor/UI.
 TAILER_DERIVABLE = {
     "claude": ("working", "done"),
+    "codex": ("working", "done"),
 }
 
 
