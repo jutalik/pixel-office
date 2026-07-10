@@ -9,6 +9,7 @@
 """
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,15 @@ from .telemetry.tailer import TranscriptTailer
 
 POLL_INTERVAL_S = 0.5
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _overlay_enabled() -> bool:
+    return os.environ.get("PO_OVERLAY", "on").strip().lower() not in ("off", "0", "false")
+
+
+def _index_page() -> str:
+    name = "office.html" if _overlay_enabled() else "office_plain.html"
+    return (STATIC_DIR / name).read_text()
 
 
 class OfficeHub:
@@ -133,7 +143,7 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
-        return (STATIC_DIR / "office.html").read_text()
+        return _index_page()
 
     @app.get("/api/office")
     async def office_snapshot():

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self' ws: wss:;">
+<title>pixel office — plain</title>
+<style>
+  body { margin:0; font-family:ui-monospace,Menlo,Consolas,monospace; background:#14141f; color:#cdd6f4; }
+  header { padding:12px 18px; border-bottom:1px solid #2a2a3c; font-size:14px; letter-spacing:1px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { text-align:left; padding:6px 18px; border-bottom:1px solid #23233250; }
+  th { color:#6c7086; font-weight:normal; }
+  .working{color:#a6e3a1} .waiting{color:#f9e2af} .blocked{color:#f38ba8} .done{color:#89b4fa}
+</style>
+</head>
+<body>
+<header>PIXEL OFFICE — plain (PO_OVERLAY=off) · <span id="conn">connecting…</span></header>
+<table><thead><tr><th>cli</th><th>session</th><th>agent</th><th>activity</th><th>liveness</th></tr></thead>
+<tbody id="rows"></tbody></table>
+<script>
+"use strict";
+const rows = new Map(), tbody = document.getElementById("rows"), conn = document.getElementById("conn");
+function key(r){ return [r.host_id,r.cli,r.session_id,r.agent_id].join("|"); }
+function render(){
+  if (document.hidden) return;
+  tbody.textContent = "";
+  for (const r of [...rows.values()].sort((a,b)=>key(a)<key(b)?-1:1)){
+    const tr = document.createElement("tr");
+    for (const [cls,val] of [["",r.cli],["",r.session_id.slice(0,16)],["",r.agent_id],
+                             [r.activity,r.activity],["",r.liveness]]){
+      const td = document.createElement("td"); td.className = cls; td.textContent = val; tr.append(td);
+    }
+    tbody.append(tr);
+  }
+}
+document.addEventListener("visibilitychange", render);
+let retry=500;
+function connect(){
+  const ws=new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/ws/office`);
+  ws.onopen=()=>{conn.textContent="live";retry=500;};
+  ws.onmessage=(e)=>{const m=JSON.parse(e.data); if(m.type==="snapshot")rows.clear();
+    for(const r of m.rows)rows.set(key(r),r); render();};
+  ws.onclose=()=>{conn.textContent="reconnecting…";setTimeout(connect,retry);retry=Math.min(retry*2,10000);};
+}
+connect();
+</script>
+</body>
+</html>

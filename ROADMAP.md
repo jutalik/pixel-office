@@ -84,6 +84,11 @@ installer remain to close Phase 3.
 Rooms, movement, speech bubbles; honesty-locked; LOD / FPS caps / pause-on-hidden / reduced-motion;
 `PO_OVERLAY=off` yields the headless core. Canvas2D only as a documented escalation at >~10 avatars.
 **Exit:** pleasant office on low-spec hardware; env var disables all game code.
+✅ **Shipped 2026-07-10** (111 tests green). Per-CLI team rooms; avatars glide between rooms on
+state change (CSS transform, no canvas); bob/wave animations gated behind `prefers-reduced-motion`;
+honest speech bubbles from metadata only (never prompt text); LOD cap (MAX_RENDER=80 + "+N more");
+pause-on-hidden. `PO_OVERLAY=off` serves a plain table on the *same* ws feed. Screenshot verified
+(3 rooms, mixed focus/wrapped/needs-you).
 
 ## Phase 5 — Product skeleton + conversational init
 Instrumented FastAPI + SQLite product skeleton (inside the 4-domain split). `po new` = conversation

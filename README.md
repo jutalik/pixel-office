@@ -7,18 +7,23 @@ agent, subagent, LLM call, and workflow shows up as an **avatar** that moves bet
 rooms and shows what it's doing — driven entirely by telemetry from the tools you
 already use (Claude Code, Codex, Grok, Gemini, and more).
 
-> **Status: Phase 0 shipped.** The telemetry contract is frozen as code
-> (`pixel_office/telemetry/`), the deterministic reducer passes golden replay tests, and
-> `po doctor` prints this machine's capability matrix. Phase 1a (first live avatar) is next —
-> see [`ROADMAP.md`](ROADMAP.md).
+> **Status: Phases 0–4 shipped** (111 tests green, CI green). A live office already works:
+> `po up` watches your Claude / Codex / Grok sessions and renders each agent as an avatar that
+> moves between team rooms and shows what it's doing — tailer by default, live hooks as an
+> opt-in upgrade. Phases 5–7 (product scaffold + conversational init, control plane + deploy,
+> mobile/PWA) are next — see [`ROADMAP.md`](ROADMAP.md).
 
 ## Quickstart
 
 ```bash
-pip install -e ".[dev]"
-po doctor        # which CLIs are installed, hook-capable, and tailable
-pytest -q        # golden replay + contract invariants
+pip install -e ".[web]"
+po doctor                 # which CLIs are installed, hook-capable, and tailable
+po up                     # → http://127.0.0.1:7717  (watches all active sessions)
+po hooks install          # opt-in: live per-event updates + `waiting`/subagent avatars
+PO_OVERLAY=off po up      # headless core: a plain status table, no game layer
 ```
+
+Run the tests with `pip install -e ".[dev]" && pytest -q`.
 
 ## The vision
 

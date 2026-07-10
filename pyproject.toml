@@ -41,5 +41,8 @@ include = ["pixel_office*"]
 [tool.setuptools.package-data]
 pixel_office = ["static/*.html"]
 
+[tool.setuptools.exclude-package-data]
+"*" = []
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -31,6 +31,17 @@ def test_index_serves_office_page(transcript):
         assert r.status_code == 200
         assert "PIXEL OFFICE" in r.text
         assert "Content-Security-Policy" in r.text
+        assert "room" in r.text  # game overlay
+
+
+def test_overlay_off_serves_plain_page(transcript, monkeypatch):
+    monkeypatch.setenv("PO_OVERLAY", "off")
+    with TestClient(create_app([transcript])) as client:
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "plain" in r.text and "PO_OVERLAY=off" in r.text
+        # same live data contract regardless of overlay
+        assert client.get("/api/office").json()["rows"][0]["activity"] == "working"
 
 
 def test_snapshot_endpoint_reflects_transcript(transcript):
