@@ -54,8 +54,9 @@ def test_cmd_run_live_wires_real_executor_without_running(tmp_path, monkeypatch)
 
     captured = {}
 
-    def fake_create_app(sources=None, company=None, host_id="local"):
+    def fake_create_app(sources=None, company=None, host_id="local", run_mode="watch"):
         captured["company"] = company
+        captured["run_mode"] = run_mode
         hub = _t.SimpleNamespace(ingest=lambda ev: None)
         return _t.SimpleNamespace(state=_t.SimpleNamespace(hub=hub))
 
@@ -70,6 +71,7 @@ def test_cmd_run_live_wires_real_executor_without_running(tmp_path, monkeypatch)
     assert rc == 0
     assert isinstance(captured["company"].runtime.executor, CLIExecutor)  # real executor wired
     assert invoke_calls == []                                              # NOT auto-run → 0 tokens
+    assert captured["run_mode"] == "live"                                  # browser can show LIVE honestly
 
 
 def test_e2e_new_then_run_shows_live_company(tmp_path):

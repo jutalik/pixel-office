@@ -195,7 +195,8 @@ def _cmd_run(args) -> int:
         print(f"po run: can't read {manifest_path}: {e}", file=sys.stderr)
         return 1
     company = build_company(manifest, host_id=args.host_id)
-    app = create_app(sources=[], company=company, host_id=args.host_id)
+    run_mode = "live" if args.live else "demo" if args.demo else "dormant"
+    app = create_app(sources=[], company=company, host_id=args.host_id, run_mode=run_mode)
     company.runtime.sink = app.state.hub.ingest
     banner = f"{company.name} · {len(company.team)} employees · mode {company.mode.drive}"
     if args.live:

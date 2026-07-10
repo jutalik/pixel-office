@@ -20,6 +20,11 @@
            align-items:center; flex:0 0 auto; }
   h1 { font-size:14px; margin:0; letter-spacing:1px; }
   #conn { font-size:11px; color:var(--dim); }
+  #conn.stale { color:var(--waiting); } #conn.offline { color:var(--blocked); }
+  .mode-badge { font-size:10px; letter-spacing:.5px; padding:2px 7px; border-radius:10px; border:1px solid var(--line); }
+  .mode-badge.demo { color:var(--waiting); border-color:#f9e2af66; background:#f9e2af14; }
+  .mode-badge.live { color:var(--working); border-color:#a6e3a166; background:#a6e3a114; }
+  .mode-badge.dormant, .mode-badge.watch { color:var(--dim); }
   .grow { flex:1 1 auto; }
   button { font-family:inherit; font-size:11px; background:#313244; color:var(--ink); border:1px solid var(--line);
            border-radius:4px; padding:5px 9px; cursor:pointer; }
@@ -112,13 +117,13 @@
 </head>
 <body>
 <header>
-  <h1>PIXEL OFFICE</h1><span id="conn">connecting…</span><span class="grow"></span>
+  <h1>PIXEL OFFICE</h1><span id="conn">connecting…</span><span id="mode" class="mode-badge"></span><span class="grow"></span>
   <button id="editBtn" aria-pressed="false" title="rearrange rooms / rename"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>edit</button>
   <button id="ceoBtn" aria-pressed="true" title="CEO panel"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>CEO</button>
 </header>
 <div id="banner"></div>
 <main>
-  <div id="floor"><div id="empty">no agents yet — run a CLI (claude / codex / grok) and watch.</div></div>
+  <div id="floor"><div id="empty">no agents yet — run one of your AI CLIs and watch them appear.</div></div>
   <aside id="ceo">
     <h2>Company at a glance</h2>
     <div class="glance" id="glance"></div>
@@ -297,7 +302,7 @@ function render(){
     (byRoom.get(k)||byRoom.set(k,[]).get(k)).push(r); }
   floor.textContent = "";
   if (!all.length){ const e=document.createElement("div"); e.id="empty";
-    e.textContent="no agents yet — run a CLI (claude / codex / grok) and watch."; floor.append(e); }
+    e.textContent="no agents yet — run one of your AI CLIs and watch them appear."; floor.append(e); }
 
   for (const [cli, mates] of [...byRoom].sort()){
     mates.sort((a,b)=>charId(a)<charId(b)?-1:1);
@@ -343,7 +348,7 @@ function render(){
     note.textContent="animation reflects workflow stages, not a live conversation."; mr.append(note);
   } else {
     const g=document.createElement("div"); g.className="gate";
-    g.textContent="empty — meetings animate here when the Company Layer runs one"; mr.append(g);
+    g.textContent="no meetings yet — a concluded meeting appears here when the company holds one"; mr.append(g);
   }
   floor.append(mr);
   renderCEO(all);
@@ -384,7 +389,14 @@ function renderCEO(all){
   const needs=document.getElementById("needs"); needs.textContent="";
   const attention = all.filter(r=>r.activity==="waiting"||r.activity==="blocked"||r.liveness==="disconnected");
   if (!attention.length){ const li=document.createElement("li"); li.className="none";
-    li.textContent="nothing needs you — the team is running."; needs.append(li); }
+    // be honest about WHY nothing needs you: actively working vs everyone idle/done
+    const working = all.some(r=>r.activity==="working" && r.liveness==="live");
+    const anyLive = all.some(r=>r.liveness==="live");
+    li.textContent = !all.length ? "no one here yet."
+      : working ? "nothing needs you — the team is working."
+      : anyLive ? "nothing needs you — the team is idle right now."
+      : "nothing needs you — everyone has wrapped up or gone offline.";
+    needs.append(li); }
   for (const r of attention){ const id=charId(r); const prof=profileOf(id,r);
     const li=document.createElement("li"); li.className = r.activity==="waiting"||r.activity==="blocked"? r.activity:"disconnected";
     const f=document.createElement("span"); f.className="face"; f.append(pixelCharSVG(lookOf(id)));
@@ -447,34 +459,49 @@ document.addEventListener("visibilitychange", render);
 
 // ---- CEO desk: real company data when the Company Layer is running -----------
 function esc(s){ const d=document.createElement("div"); d.textContent=s; return d; }
+let lastCompany=null;   // last SUCCESSFUL company data — retained across transient poll failures
 async function refreshCompany(){
   const desk=document.getElementById("ceoDesk");
-  let data=null;
-  try { const r=await fetch("/api/company"); if(r.status===200) data=await r.json(); } catch(e){}
+  let status="error", data=null;
+  try { const r=await fetch("/api/company");
+    if (r.status===200){ data=await r.json(); status="ok"; lastCompany=data; }
+    else if (r.status===204){ status="none"; }        // honest absence: no Company Layer
+  } catch(e){ status="error"; }                        // transient: keep showing last-known
+  if (status==="error" && lastCompany) data=lastCompany;
   const prevMeeting = lastMeeting;
   lastMeeting = data ? data.meeting : null;
   const nextRoster = {}; if (data) for (const m of (data.roster||[])) nextRoster[m.id]=m.dept;
   const rosterChanged = JSON.stringify(nextRoster) !== JSON.stringify(roster);
   roster = nextRoster;
   if (rosterChanged || JSON.stringify(prevMeeting) !== JSON.stringify(lastMeeting)) render();  // refresh floor/meeting room
-  if (!data){  // no company → honest gated view (built with icons, no emoji)
-    if (!desk.querySelector(".gate")){
-      desk.textContent="";
+  if (!data){  // 204 (real absence) → gated view; a transient error with no prior data → a soft note
+    desk.textContent="";
+    if (status==="none"){
       for (const [ic,lab] of [["circle-check","Approvals"],["target","OKRs / goals"],
                               ["users","Team & HR"],["banknote","Budget & spend"]]){
         const g=document.createElement("div"); g.className="gate locked";
         const b=document.createElement("b"); b.textContent="Requires Company Layer";
         g.append(lucide(ic), document.createTextNode(" "+lab+" · "), b); desk.append(g);
       }
+    } else {
+      const n=document.createElement("div"); n.className="readonly"; n.style.marginTop="0";
+      n.append(lucide("circle-alert"), document.createTextNode(" reconnecting to company data…")); desk.append(n);
     }
     return;
   }
   desk.textContent="";
+  if (status==="error"){   // showing retained data during a transient poll failure — say so
+    const s=document.createElement("div"); s.className="readonly"; s.style.margin="0 0 6px"; s.style.color="var(--waiting)";
+    s.append(lucide("circle-alert"), document.createTextNode(" reconnecting — showing last-known company state")); desk.append(s);
+  }
   const chip=document.createElement("div"); chip.className="mode-chip";
   chip.textContent = `${data.summary.name} · mode: ${data.summary.mode.drive} · CEO sees: ${data.summary.mode.ceo_updates}`;
   desk.append(chip);
-  // approvals (real CEO cards)
+  // approvals (real CEO cards). The dashboard is read-only — approving happens in
+  // your CLI / company config; the card explains WHAT needs a decision + why.
   const ah=heading("circle-check", ` Needs your sign-off (${data.ceo_cards.length})`); ah.style.margin="6px 0"; desk.append(ah);
+  if (data.ceo_cards.length){ const note=document.createElement("div"); note.className="readonly"; note.style.margin="0 0 4px";
+    note.textContent="review these in your CLI — this dashboard is a read-only monitor."; desk.append(note); }
   if (!data.ceo_cards.length){ const d=document.createElement("div"); d.className="readonly"; d.textContent="nothing pending — the team is deciding within its authority."; desk.append(d); }
   for (const c of data.ceo_cards){
     const card=document.createElement("div"); card.className="card"+(c.one_way_door?" oneway":"");
@@ -528,19 +555,56 @@ async function refreshCompany(){
 }
 setInterval(refreshCompany, 4000); refreshCompany();
 
-// ---- live wiring: snapshot + deltas, offline last-snapshot -------------------
+// ---- run-mode badge: honest, persistent (DEMO=simulated vs LIVE=real work) ----
+const MODE_TEXT = { demo:["demo","DEMO · simulated activity, not real work"],
+                    live:["live·real","LIVE · real CLI agents — spends tokens when they work"],
+                    dormant:["idle","company idle — assign work to wake it"],
+                    watch:["watching","watching your live CLI sessions"] };
+async function refreshMeta(){
+  try { const r=await fetch("/api/meta"); if(!r.ok) return; const m=await r.json();
+    const el=document.getElementById("mode"); const info=MODE_TEXT[m.run_mode]||MODE_TEXT.watch;
+    el.className="mode-badge "+m.run_mode; el.textContent=info[0]; el.title=info[1];
+  } catch(e){}
+}
+refreshMeta();
+
+// ---- live wiring: snapshot + deltas, heartbeat + watchdog, offline snapshot ---
 for (const r of loadJSON("po:last",[])){ rows.set(charId(r), r); }
 if (rows.size){ setBanner("showing last-known state — connecting for live…"); render(); }
-let retry=500;
+let retry=500, sock=null, lastFrameAt=0, hb=null;
+function setConn(text, cls){ conn.textContent=text; conn.className=cls||""; }
 function connect(){
   const ws=new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/ws/office`);
-  ws.onopen=()=>{ conn.textContent="live"; retry=500; setBanner(""); };
-  ws.onmessage=e=>{ const m=JSON.parse(e.data); if(m.type==="snapshot") rows.clear();
-    for (const r of m.rows) rows.set(charId(r), r); saveJSON("po:last",[...rows.values()]); render(); };
-  ws.onclose=()=>{ conn.textContent="offline";
+  sock=ws;
+  ws.onopen=()=>{ setConn("live"); retry=500; setBanner(""); lastFrameAt=nowMs(); };
+  ws.onmessage=e=>{ lastFrameAt=nowMs(); if(conn.textContent!=="live") setConn("live");
+    let m; try { m=JSON.parse(e.data); } catch(err){ return; }
+    if(m.type!=="snapshot" && m.type!=="delta") return;   // heartbeat pong etc. — no data
+    if(m.type==="snapshot") rows.clear();
+    for (const r of (m.rows||[])) rows.set(charId(r), r); saveJSON("po:last",[...rows.values()]); render(); };
+  ws.onclose=()=>{ setConn("offline","offline");
     setBanner("offline — showing last-known state. reopen when your office is reachable.");
     setTimeout(connect,retry); retry=Math.min(retry*2,10000); };
+  ws.onerror=()=>{ try{ ws.close(); }catch(e){} };
 }
+function nowMs(){ return (window.performance && performance.now) ? performance.now() : 0; }
+// heartbeat: ping every 5s; if pongs stop arriving the socket is silently dead
+// (no close event) → reconnect. Skipped while the tab is hidden (timers throttle
+// there); becoming visible grants a grace window so a throttled tab doesn't
+// false-trip the watchdog before the next pong can land.
+if (hb) clearInterval(hb);
+hb=setInterval(()=>{
+  if(!sock || document.hidden || sock.readyState!==1) return;
+  // check staleness on the PREVIOUS ping's result, THEN ping again
+  if(lastFrameAt && nowMs()-lastFrameAt>14000 && conn.textContent==="live"){
+    setConn("reconnecting…","stale"); try{ sock.close(); }catch(e){} return;
+  }
+  try { sock.send("ping"); } catch(e){}
+}, 5000);
+document.addEventListener("visibilitychange", ()=>{
+  if(!document.hidden){ lastFrameAt=nowMs();                     // grace after wake
+    if(sock && sock.readyState===1){ try{ sock.send("ping"); }catch(e){} } }
+});
 connect();
 if ("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
 </script>

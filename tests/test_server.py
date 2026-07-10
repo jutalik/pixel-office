@@ -85,6 +85,24 @@ def test_ws_snapshot_then_delta(transcript):
             assert changed and changed[0]["activity"] == "done"
 
 
+def test_api_meta_reports_run_mode(transcript):
+    # the browser reads this to show DEMO vs LIVE persistently + honestly
+    with TestClient(create_app([transcript], run_mode="demo")) as client:
+        m = client.get("/api/meta").json()
+        assert m["run_mode"] == "demo" and m["has_company"] is False
+    with TestClient(create_app([transcript])) as client:       # default = watch
+        assert client.get("/api/meta").json()["run_mode"] == "watch"
+
+
+def test_ws_heartbeat_pong(transcript):
+    # a live-but-quiet office answers the client ping so its watchdog sees frames
+    with TestClient(create_app([transcript])) as client:
+        with client.websocket_connect("/ws/office") as ws:
+            assert ws.receive_json()["type"] == "snapshot"
+            ws.send_text("ping")
+            assert ws.receive_json() == {"type": "pong"}
+
+
 def test_hook_receiver_auth_and_ingest(transcript):
     app = create_app([transcript], hook_token="tok")
     with TestClient(app) as client:

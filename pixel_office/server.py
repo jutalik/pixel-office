@@ -156,7 +156,7 @@ class OfficeHub:
 def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "local",
                sources: Optional[List] = None,
                hook_token: Optional[str] = None,
-               company=None) -> FastAPI:
+               company=None, run_mode: str = "watch") -> FastAPI:
     src = list(sources) if sources else []
     for p in (transcripts or []):
         src.append(TranscriptTailer(p, host_id=host_id))
@@ -172,6 +172,13 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
 
     app = FastAPI(title="pixel-office", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.hub = hub
+
+    @app.get("/api/meta")
+    async def meta():
+        # lets the browser show — persistently + honestly — whether it's watching
+        # real CLI sessions, running a LIVE company (real work/tokens), a DEMO
+        # (simulated, no real work), or a dormant company (idle until assigned).
+        return JSONResponse({"run_mode": run_mode, "has_company": company is not None})
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
@@ -242,7 +249,11 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
         try:
             await ws.send_text(json.dumps({"type": "snapshot", "rows": hub.current_view()}))
             while True:
-                await ws.receive_text()  # client pings; content ignored
+                msg = await ws.receive_text()
+                # answer the client heartbeat so a live-but-quiet office still
+                # produces frames (the client watchdog can then spot a dead socket)
+                if msg == "ping":
+                    await ws.send_text('{"type":"pong"}')
         except WebSocketDisconnect:
             pass
         finally:

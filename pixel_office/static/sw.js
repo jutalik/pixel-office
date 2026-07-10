@@ -3,7 +3,7 @@
 // the deploy playbook (tunnel). This SW makes the shell installable and keeps the
 // LAST seen state visible offline; it never implies the local office is remotely
 // reachable on its own.
-const CACHE = "pixel-office-v1";
+const CACHE = "pixel-office-v2";
 const SHELL = ["/", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -20,16 +20,25 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.pathname.startsWith("/ws")) return;
-  // network-first for live data; fall back to cache (stale) when offline
+  const isNav = e.request.mode === "navigate";
+  const isShell = url.pathname === "/" || SHELL.includes(url.pathname);
+  // network-first; on failure only the app SHELL falls back to cached HTML.
+  // API/data GETs (e.g. /api/*) must FAIL explicitly — never serve HTML to a
+  // JSON fetch (that would surface as a silent parse error in the app).
   e.respondWith(
     fetch(e.request)
       .then((resp) => {
-        if (resp.ok && (url.pathname === "/" || SHELL.includes(url.pathname))) {
+        if (resp.ok && isShell) {
           const copy = resp.clone();
           caches.open(CACHE).then((c) => c.put(e.request, copy));
         }
         return resp;
       })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match("/")))
+      .catch(async () => {
+        const cached = await caches.match(e.request);
+        if (cached) return cached;
+        if (isNav) return (await caches.match("/")) || Response.error();
+        return Response.error();   // let the app's own fetch().catch handle it
+      })
   );
 });
