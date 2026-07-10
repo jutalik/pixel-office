@@ -104,3 +104,37 @@ def test_e2e_new_then_run_shows_live_company(tmp_path):
         rows = client.get("/api/office").json()["rows"]
         writers = [r for r in rows if r["cli"] == "company"]
         assert len(writers) == 2 and all(r["activity"] == "done" for r in writers)
+
+
+def test_api_company_payload_has_roster_and_activity(tmp_path):
+    # the office UI depends on these keys (department rooms + CEO activity feed)
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from pixel_office.company.autonomy import AutonomyLoop
+    from pixel_office.company.factory import build_company
+    from pixel_office.server import create_app
+
+    manifest = {"name": "RecipeCo", "goal": "weekly recipes", "mode": "Autopilot",
+                "roles": [{"title": "backend engineer", "count": 1},
+                          {"title": "content writer", "count": 1},
+                          {"title": "growth marketer", "count": 1}],
+                "key_results": [{"text": "publish 10 recipes", "target": 10, "cadence": "weekly"},
+                                {"text": "reach 500 signups", "target": 500, "cadence": "monthly"}]}
+    company = build_company(manifest)
+    app = create_app(sources=[], company=company)
+    company.runtime.sink = app.state.hub.ingest
+    with TestClient(app) as client:
+        AutonomyLoop(company, max_dispatch=2, review_every_s=1e9).tick(now=0)  # one real tick
+        d = client.get("/api/company").json()
+        for key in ("summary", "okrs", "ceo_cards", "hr", "trends", "meeting", "activity", "roster"):
+            assert key in d, f"missing {key}"
+        # roster carries departments (drives the office department rooms)
+        depts = {m["dept"] for m in d["roster"]}
+        assert {"Engineering", "Content", "Growth"} <= depts
+        # KRs surfaced + activity recorded by the tick
+        assert len(d["okrs"]) == 2
+        assert any(a["kind"] in ("plan", "work") for a in d["activity"])
+        # routing put the recipes work on the writer, not the engineer
+        work = [a["text"] for a in d["activity"] if a["kind"] == "work"]
+        assert any("content-writer" in t and "recipes" in t for t in work)
