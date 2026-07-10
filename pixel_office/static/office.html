@@ -106,9 +106,15 @@
   .msg-state { font-size:10px; color:var(--dim); margin-top:6px; }
   .readonly { margin-top:14px; font-size:10px; color:var(--dim); }
   @media (prefers-reduced-motion: no-preference){
+    /* restrained, activity-distinct motion (only for live avatars) */
     .working:not(.stale):not(.disconnected) .face{ animation:bob 1.3s ease-in-out infinite; }
-    .waiting .face{ animation:wave 1.1s ease-in-out infinite; }
-    @keyframes bob{50%{transform:translateY(-3px)}} @keyframes wave{50%{transform:rotate(-12deg)}}
+    .waiting:not(.stale):not(.disconnected) .face{ animation:wave 1.1s ease-in-out infinite; transform-origin:50% 90%; }
+    .blocked:not(.stale):not(.disconnected) .face{ animation:shake .5s ease-in-out infinite; }
+    .avatar.say .bubble{ animation:pulse 1.6s ease-in-out infinite; }
+    @keyframes bob{50%{transform:translateY(-3px)}}
+    @keyframes wave{50%{transform:rotate(-12deg)}}
+    @keyframes shake{25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}
+    @keyframes pulse{50%{opacity:.55}}
   }
   @media (max-width:720px){ #ceo{ position:fixed; right:0; top:0; bottom:0; z-index:9; box-shadow:-4px 0 20px #0008; }
                             #floor{ grid-template-columns:1fr; } }
