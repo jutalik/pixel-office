@@ -58,31 +58,35 @@ reversible bets, and continuously tune the process against real growth.
 None of this is hardcoded. The company's **leadership + autonomy + culture** is a
 single top-level setting the CEO picks (and can change or override any field).
 One dial governs how wide default approval envelopes are, how much reaches the
-CEO queue, and how the org plans — so a busy CEO picks `auto` and steps back, or
-`ceo-led` when they want the wheel.
+CEO queue, and how the org plans — so a busy CEO picks `Autopilot` and steps back, or
+`Manual` when they want the wheel.
+
+The names use a **driving metaphor** — the CEO is the driver of the company, and
+the mode is how much of the driving the AI team does:
 
 ```
 operating_mode:
-  leadership:   ceo-led | co-pilot | auto     # who drives planning & decisions
-  autonomy:     narrow | medium | wide        # default approval-envelope width
-  ceo_touch:    high | normal | minimal       # how much reaches the CEO queue
-  culture:      balanced | hypergrowth | conservative | research   # preset (§1), overridable
-  self_adapt:   off | bounded | on            # may the growth engine tune the process?
+  drive:        Manual | Copilot | Autopilot   # ← the main dial (who drives)
+  autonomy:     Tight | Balanced | Loose        # default approval-envelope width
+  ceo_updates:  Everything | Key decisions | Weekly digest   # how much reaches the CEO
+  culture:      Balanced | Hyper-growth | Steady | Research   # preset (§1), overridable
+  self_tuning:  Off | Guardrailed | On          # may the growth engine tune the process?
 ```
 
-Presets (each is just defaults for the fields above — every field is overridable):
+The three **drive** presets (each just sets defaults for the fields above — every
+field stays overridable):
 
-| mode | leadership | autonomy | ceo_touch | who plans KRs | CEO sees |
-|---|---|---|---|---|---|
-| **`ceo-led`** | CEO | narrow | high | CEO approves each replan | most planning + actions |
-| **`co-pilot`** | CEO sets strategy, org executes | medium | normal | org proposes, CEO approves | KR replans + medium risk |
-| **`auto`** (autopilot) | the org, toward the CEO's Objective | wide | minimal | growth engine replans autonomously | one-way doors + a weekly digest |
+| Mode | In one line | Who plans the weekly/monthly KRs | What reaches the CEO |
+|---|---|---|---|
+| **🚗 Manual** *(CEO-led)* | You drive; the team executes and checks with you. | CEO approves every replan | most planning + most actions |
+| **🚙 Copilot** *(shared)* | You set the direction; the team runs the day-to-day and asks you for the big turns. | Team proposes, CEO approves | KR replans + medium-risk actions |
+| **🚀 Autopilot** *(self-running)* | The team runs the whole company toward your goal; you set the destination and only sign off on one-way doors. | Growth engine replans on its own | one-way doors + a weekly digest |
 
 - The mode sets the **default envelope width and escalation thresholds** in §4 and
   how much lands in the CEO queue in §6 — nothing else in the design changes.
-- Per-role and per-action overrides still apply (e.g. even in `auto`, terminating
+- Per-role and per-action overrides still apply (e.g. even in `Autopilot`, terminating
   an employee or a prod deploy is always a one-way door → CEO).
-- If `self_adapt` ≠ off, the growth engine (§3) may tune culture/cadence *within
+- If `self_tuning` ≠ Off, the growth engine (§3) may tune culture/cadence *within
   the mode's bounds* to raise growth rate — the CEO can pin any field to stop it.
 
 Everything below describes the *behaviors*; the mode just picks how autonomous
@@ -152,7 +156,7 @@ never unconstrained side-effects.
   expiry + action class* **once**; agents then operate freely inside it (this is
   what keeps autonomy high while the CEO stays hands-off). Standing policies too:
   "auto-approve staging deploys under $X." **The operating mode (§0.6) sets the
-  default envelope width** — `auto` = wide (few, broad envelopes), `ceo-led` =
+  default envelope width** — `Autopilot` = wide (few, broad envelopes), `Manual` =
   narrow (more, tighter approvals).
 - **Circuit breakers** (fail-closed): anomalous fan-out, repeated failures,
   unexpected external targets, rapid budget burn → pause + escalate. Guards
@@ -176,8 +180,8 @@ never unconstrained side-effects.
 
 ## 6. CEO ← PO flow (minimal, because the CEO is one busy person)
 
-How much the CEO is touched is set by the operating mode (§0.6): `auto` = only
-one-way doors + a weekly digest; `ceo-led` = most planning + actions. Domain
+How much the CEO is touched is set by the operating mode (§0.6): `Autopilot` = only
+one-way doors + a weekly digest; `Manual` = most planning + actions. Domain
 owners prepare machine-validated briefs; the **PO is the presentation boundary**
 (dedupe, prioritize, fill gaps, explain), **not** a processing bottleneck (an
 emergency delegate exists; one canonical queue + audit identity).
@@ -229,7 +233,7 @@ synthesis call. Cadence + token cap are policy; it never runs unbounded.
 ## 10. Phased build (cheapest value first)
 
 0. **Operating mode + charter** — the top-level `operating_mode` config (§0.6)
-   with presets (ceo-led / co-pilot / auto), wired into `po new` so a company is
+   with presets (Manual / Copilot / Autopilot), wired into `po new` so a company is
    born with a chosen autonomy level; changeable anytime. Cheap, and it governs
    every later phase.
 1. **Org runtime + OKR tree + decision memos** — the shared event-driven runtime,
