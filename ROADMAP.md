@@ -95,6 +95,14 @@ Instrumented FastAPI + SQLite product skeleton (inside the 4-domain split). `po 
 + editable cards + plain-language **charter confirmation** → manifest/seed (api-service /
 data-pipeline / chat-product templates).
 **Exit:** `po new` → an already-instrumented product; the charter step prevents a broken seed.
+✅ **Shipped 2026-07-10** (123 tests green). `po new` (interactive Q&A OR flags), extended manifest
+(what/goal/benchmarks/niche/stack/roles) with bounded, injection-safe validation of untrusted input;
+plain-language charter confirmation before anything is written; 3 instrumentation-complete templates
+(FastAPI+SQLite: /health, /ready, /api/telemetry|funnel|quality|growth, X-App-Token writes, WAL) +
+an env-adaptive deploy playbook + Dockerfile. E2E verified: scaffolded a recipebot, its own smoke
+test passed, the backend ran and answered instrumentation + enforced write auth (401→200). Codex
+caught a code-injection (untrusted name into generated source) and a type-crash — both fixed with
+regressions (a payload that would `open()` a sentinel file is proven inert after exec).
 
 ## Phase 6 — Control plane & deploy playbook
 Approvals/budget (fail-closed, audit, single-use expiring capability tokens). Env-adaptive deploy

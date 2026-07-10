@@ -89,7 +89,50 @@ def build_parser() -> argparse.ArgumentParser:
     h = sub.add_parser("hooks", help="manage the live-mode hook (opt-in upgrade)")
     h.add_argument("action", choices=["install", "uninstall", "status"])
     h.set_defaults(func=_cmd_hooks)
+    n = sub.add_parser("new", help="scaffold a new instrumented project (conversational)")
+    n.add_argument("--dir", default=".", help="parent directory (default: cwd)")
+    n.add_argument("--what", help="one-line description (skips interactive mode)")
+    n.add_argument("--name")
+    n.add_argument("--goal")
+    n.add_argument("--niche")
+    n.add_argument("--stack", default="api-service")
+    n.add_argument("--benchmarks", help="comma-separated")
+    n.add_argument("--roles", help="e.g. '2 writer, 1 editor'")
+    n.add_argument("--yes", action="store_true", help="skip confirmation (non-interactive)")
+    n.set_defaults(func=_cmd_new)
     return p
+
+
+def _cmd_new(args) -> int:
+    from .scaffold import builder
+    from .scaffold.init_chat import answers_to_manifest, run_interactive
+    from .scaffold.manifest import Manifest
+
+    root = Path(args.dir).resolve()
+    if args.what:  # non-interactive: build straight from flags
+        manifest = answers_to_manifest({
+            "what": args.what, "name": args.name or args.what, "goal": args.goal or "",
+            "niche": args.niche or "", "stack": args.stack, "benchmarks": args.benchmarks or "",
+            "roles": args.roles or "",
+        })
+        print(manifest.charter())
+        if not args.yes:
+            print("\nre-run with --yes to create, or use `po new` interactively.")
+            return 0
+    else:
+        manifest = run_interactive(input, lambda p: input(p).strip().lower() in ("y", "yes"), print)
+        if manifest is None:
+            return 1
+    try:
+        project = builder.build(manifest, root)
+    except (FileExistsError, ValueError) as e:
+        print(f"po new: {e}", file=sys.stderr)
+        return 1
+    print(f"\ncreated {project}")
+    print(f"  cd {project.relative_to(Path.cwd()) if project.is_relative_to(Path.cwd()) else project}"
+          f"/backend && uvicorn app:app --reload")
+    print("  then `po up` to watch your team build it")
+    return 0
 
 
 def _cmd_hooks(args) -> int:
