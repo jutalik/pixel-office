@@ -136,6 +136,12 @@ class AutonomyLoop:
         self.max_dispatch = max_dispatch
         self.review_every_s = review_every_s
         self.radar_every_s = radar_every_s
+        # the loop is the SINGLE cadence gate for the radar now (it drives scans off-lock
+        # in phase B); align the radar's own interval so it doesn't double-gate and block.
+        try:
+            company.radar.min_interval_s = radar_every_s
+        except Exception:
+            pass
         self.hr_every_s = hr_every_s
         self.initiative_every_s = initiative_every_s
         self.metrics_every_s = metrics_every_s
@@ -192,6 +198,9 @@ class AutonomyLoop:
             if do_metrics:
                 self._last_metrics = now
             product_url = getattr(c, "product_url", "")
+            do_radar = _due(self._last_radar, now, self.radar_every_s)
+            if do_radar:
+                self._last_radar = now      # the radar SEARCH (HTTP) runs in phase B, off-lock
             # 2b. initiative DECISION (who/what/lens) — the creative content itself is
             #     generated in phase B (may hit a live CLI), never under the lock.
             initiative_plan = None
@@ -213,7 +222,10 @@ class AutonomyLoop:
                         initiative_plan = {"emp": emp.id, "kr_id": str(kr.id), "kr_text": kr.text,
                                            "kr_target": float(getattr(kr, "target", 0) or 0),
                                            "family": fam, "objective": c.okrs.objective,
-                                           "lens": pool[int(now) % len(pool)]}
+                                           "lens": pool[int(now) % len(pool)],
+                                           # REAL current trends (from the radar's configured sources)
+                                           # seed the idea — empty when no source is set (no fabrication).
+                                           "trends": list(getattr(c, "_trends", []))[:5]}
                 except Exception:
                     initiative_plan = None
         # ---- phase B: I/O OUTSIDE the lock (CLI + HTTP) so /api/company stays --------
@@ -232,18 +244,27 @@ class AutonomyLoop:
                 fetched = metrics.fetch_metrics(product_url)
             except Exception:
                 fetched = None
+        # radar SEARCH (SearXNG/Reddit HTTP) runs OFF-lock too — sequential per-source
+        # requests must never freeze /api/company reads.
+        radar_rep = None
+        if do_radar:
+            try:
+                radar_rep = c.radar.scan(now)
+            except Exception:
+                radar_rep = None
         # idea CONTENT generation (D2): a live CLI writes the actual idea in --live;
         # deterministic skeleton otherwise. Done here so the CLI can't freeze the lock.
-        idea_content, idea_assumptions, idea_gen_failed = "", (), False
+        idea_content, idea_assumptions, idea_grounding, idea_gen_failed = "", (), "", False
         if initiative_plan and self.idea_gen_fn is not None:
             try:
                 raw = str(self.idea_gen_fn(
                     initiative_plan["objective"], initiative_plan["family"],
-                    initiative_plan["lens"], initiative_plan["kr_text"]) or "")
+                    initiative_plan["lens"], initiative_plan["kr_text"],
+                    initiative_plan.get("trends", [])) or "")
             except Exception:
                 raw = ""
             if raw.strip():
-                idea_content, idea_assumptions = creativity.split_assumption(raw)
+                idea_content, idea_assumptions, idea_grounding = creativity.parse_live_idea(raw)
             else:
                 idea_gen_failed = True   # live CLI produced nothing → do NOT fabricate a proposal
         # ---- phase C: record results + cadence work (under lock — pure state) --------
@@ -335,13 +356,12 @@ class AutonomyLoop:
                     r.reviewed = True
                 except Exception:
                     pass
-            if _due(self._last_radar, now, self.radar_every_s):
-                self._last_radar = now
+            if do_radar and radar_rep is not None and getattr(radar_rep, "ran", False):
                 try:
-                    trends = c.scan_trends(now)
+                    c._trends = list(radar_rep.trends)   # store the off-lock scan (under lock now)
                     r.scanned = True
-                    if trends:
-                        c.record_activity("trend", f"scanned trends — {len(trends)} on the radar")
+                    if radar_rep.trends:
+                        c.record_activity("trend", f"scanned trends — {len(radar_rep.trends)} on the radar")
                 except Exception:
                     pass
             if _due(self._last_hr, now, self.hr_every_s):
@@ -404,8 +424,9 @@ class AutonomyLoop:
                     rec = creativity.new_idea_record(
                         initiative_plan["emp"], initiative_plan["lens"], initiative_plan["kr_id"],
                         objective=initiative_plan["objective"], content=idea_content,
-                        proposer_assumptions=idea_assumptions, success_threshold=_thr,
-                        evaluation_window=_ideas.VALIDATION_WINDOW_TICKS, created_tick=tick_no)
+                        grounded_in=idea_grounding, proposer_assumptions=idea_assumptions,
+                        success_threshold=_thr, evaluation_window=_ideas.VALIDATION_WINDOW_TICKS,
+                        created_tick=tick_no)
                     if c.propose_idea(rec) is not None:   # None → ledger full of active ideas, skip
                         c.record_activity("idea", f"{rec.proposer_id} proposed [{rec.lens}] → {initiative_plan['kr_text']}")
                         if rec.reversible and len(c.backlog) < self.max_dispatch:

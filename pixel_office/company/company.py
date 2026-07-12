@@ -201,7 +201,7 @@ class Company:
             pending = [i for i in self.ideas if i.status in (_ideas.PROPOSED, _ideas.PURSUED, _ideas.DELIVERED)]
             def row(i):
                 return {"proposer": i.proposer_id, "lens": i.lens, "content": i.content,
-                        "target": i.target_kr_id, "status": i.status,
+                        "target": i.target_kr_id, "status": i.status, "grounded_in": i.grounded_in,
                         "delta": round(i.associated_delta, 3), "points": round(i.outcome_points, 3)}
             rep = _ideas.proposer_reputation(self.ideas)
             top = sorted(rep.items(), key=lambda kv: kv[1], reverse=True)[:limit]
@@ -271,9 +271,14 @@ class Company:
 
     def scan_trends(self, now: float) -> list:
         rep = self.radar.scan(now)
-        if rep.ran and rep.trends:
-            self._trends = rep.trends
+        if rep.ran:                        # a scan that ran REPLACES the set — even with fewer
+            self._trends = rep.trends      # (or zero) trends, so expired ones don't linger
         return self._trends
+
+    def set_trends(self, trends) -> None:
+        """Store trends scanned OUTSIDE the lock (autonomy phase B) — see scan_trends."""
+        with self._lock:
+            self._trends = list(trends or [])
 
     def summary(self) -> dict:
         return {

@@ -51,6 +51,7 @@ class IdeaRecord:
     lens: str
     content: str                 # the idea itself (deterministic skeleton, or live LLM text)
     target_kr_id: str            # the KR this idea explicitly aims to move (not guessed)
+    grounded_in: str = ""        # a REAL source the live agent cited (provenance) — never invented
     reversible: bool = True
     cost: str = "small"
     system_assumptions: Tuple[str, ...] = ()
@@ -98,7 +99,7 @@ def learning_from(idea, tick: int) -> "LearningRecord":
 
 
 def new_idea_record(proposer_id: str, lens: str, target_kr_id: str, *,
-                    objective: str = "", content: str = "",
+                    objective: str = "", content: str = "", grounded_in: str = "",
                     proposer_assumptions: Tuple[str, ...] = (),
                     reversible: bool = True, cost: str = "small",
                     success_threshold: float = 0.0, evaluation_window: int = 6,
@@ -113,11 +114,41 @@ def new_idea_record(proposer_id: str, lens: str, target_kr_id: str, *,
     floor = (f"unverified that this {lens} idea moves {target_kr_id or obj} above its baseline",)
     keep = tuple(" ".join(str(a).split())[:160] for a in (proposer_assumptions or ()) if str(a).strip())[:3]
     return IdeaRecord(proposer_id=str(proposer_id), lens=str(lens), content=body,
-                      target_kr_id=str(target_kr_id or ""), reversible=bool(reversible),
+                      target_kr_id=str(target_kr_id or ""), grounded_in=" ".join(str(grounded_in).split())[:200],
+                      reversible=bool(reversible),
                       cost=str(cost), system_assumptions=floor, proposer_assumptions=keep,
                       success_threshold=max(0.0, float(success_threshold)),
                       evaluation_window=max(1, int(evaluation_window)),
                       created_tick=int(created_tick))
+
+
+_SOURCE_MARKERS = ("http://", "https://", "www.", "doi.org", "doi:", "arxiv", ".com", ".org",
+                   ".io", ".gov", ".edu", ".net", ".ai", "r/")
+
+
+def _looks_like_source(s: str) -> bool:
+    """A citation must look like a real reference (URL / DOI / arXiv / domain), not a
+    hand-wave like 'my intuition' or 'a fabricated study' — so provenance stays honest
+    even though we can't fetch to fully verify it."""
+    low = s.lower()
+    return any(m in low for m in _SOURCE_MARKERS)
+
+
+def parse_live_idea(text: str) -> Tuple[str, Tuple[str, ...], str]:
+    """Parse a live agent's researched idea into (content, proposer_assumptions,
+    grounded_in). Pulls a trailing 'Assumption: …' and a cited 'Source: …' — keeping
+    ONLY what the agent actually wrote, and only a source that LOOKS like a real
+    reference, so provenance is real or empty, never invented."""
+    content, assumptions = split_assumption(text)
+    low = content.lower()
+    idx = low.rfind("source:")
+    grounded = ""
+    if idx != -1:
+        cited = content[idx + len("source:"):].strip()[:200]
+        content = (content[:idx].strip().rstrip("-–—.").strip() or content)
+        if _looks_like_source(cited):     # drop non-reference "sources" (no fabricated provenance)
+            grounded = cited
+    return content, assumptions, grounded
 
 
 def split_assumption(text: str) -> Tuple[str, Tuple[str, ...]]:

@@ -224,10 +224,21 @@ reject stores a reason code (no extra LLM call to "invent a lesson").
 
 ## 8. Trend radar (bold, current, budgeted)
 
-A recurring, **budgeted** research function scans the latest trends
-(web search, competitor/market/tech) on a cadence, distills to a short memo, and
-feeds the weekly review + backlog. Cheap-model + deterministic-dedup first; one
-synthesis call. Cadence + token cap are policy; it never runs unbounded.
+A recurring, **budgeted** research function scans the latest trends on a cadence,
+distills to a short memo, and feeds the weekly review + backlog **and the idea
+engine** (§13). Cadence + cap are policy; it never runs unbounded.
+
+- **Real sources, composed (`search.py`).** Bring your own engines — a self-hosted
+  **SearXNG** (`PO_SEARXNG_URL`, no key, no third party sees your queries) and/or
+  **Reddit** subreddits (`PO_REDDIT_SUBS`, public `hot.json`). `multi_search_fn`
+  interleaves them round-robin so no one source dominates. All stdlib, bounded,
+  fail-open. Nothing configured → the radar honestly does not scan (no fabricated trends).
+- **Recency, not "ever" (`radar.py`).** Dedup is time-aware (`trend_ttl_s`): a
+  still-trending item resurfaces after its TTL and stale ones expire, so "current"
+  means recent. The `_seen` window is pruned to stay bounded.
+- **Live agent research.** In `--live`, creativity goes further than the radar: the
+  employee's own CLI is asked to research the latest, **credible** sources (recent
+  papers, reputable outlets) via its web tools and cite them — see §13.
 
 ## 9. How this maps onto what's already built
 
@@ -350,9 +361,13 @@ and is deliberately conservative about what it claims.
    KR**. It **preregisters an experiment contract**: a `success_threshold` (beat the
    baseline by ≥3% of the KR target) and an `evaluation_window`, fixed *before* pursuit
    so success can't be redefined afterward. The idea's *content* is a deterministic
-   skeleton in `--demo`/tests (0 tokens) or, in `--live`, written by the employee's
-   **real CLI** (`idea_gen_fn`, called OUTSIDE the company lock; if it produces nothing
-   the proposal is skipped — a skeleton is never attributed to the employee).
+   skeleton in `--demo`/tests (0 tokens) or, in `--live`, **researched by the employee's
+   own CLI**: it's seeded with the radar's REAL current trends and asked to find the
+   latest, *credible* sources (recent papers, reputable outlets) via its web tools,
+   then propose a grounded idea and **cite the source** (`grounded_in` provenance — kept
+   only if the agent actually cited one; never invented). Called OUTSIDE the company
+   lock; if it produces nothing the proposal is skipped (a skeleton is never attributed
+   to the employee, and a trend is never fabricated when no source is configured).
 2. **pursue** — a reversible idea becomes ONE bounded exploration task (linked by id).
 3. **deliver / drop** — task succeeds → `DELIVERED`, snapshotting the target KR *and its
    pre-delivery trend* (`baseline_rate`) at the end of the delivery tick; task fails →

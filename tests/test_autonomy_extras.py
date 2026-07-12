@@ -35,7 +35,7 @@ def test_live_idea_gen_failure_does_not_fabricate_an_employee_proposal():
                        "roles": [{"title": "Growth Marketer", "count": 1}]})
     c.okrs.add_kr(KeyResult("kr1", "reach 1000 signups", target=1000))
     loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9,
-                        idea_gen_fn=lambda o, f, l, t: "")   # live gen that yields nothing
+                        idea_gen_fn=lambda o, f, l, t, tr=None: "")   # live gen that yields nothing
     loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
     loop._last_radar = loop._last_hr = 1e18
     loop.tick(0)
@@ -48,12 +48,31 @@ def test_live_idea_gen_content_and_assumption_are_recorded():
                        "roles": [{"title": "Growth Marketer", "count": 1}]})
     c.okrs.add_kr(KeyResult("kr1", "reach 1000 signups", target=1000))
     loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9,
-                        idea_gen_fn=lambda o, f, l, t: "Launch a referral link. Assumption: users share")
+                        idea_gen_fn=lambda o, f, l, t, tr=None:
+                        "Launch a referral link. Source: arxiv.org/2401.001. Assumption: users share")
     loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
     loop._last_radar = loop._last_hr = 1e18
     loop.tick(0)
     assert c.ideas and c.ideas[0].content == "Launch a referral link"
     assert c.ideas[0].proposer_assumptions == ("users share",)   # only the CLI's own words
+    assert c.ideas[0].grounded_in == "arxiv.org/2401.001"        # real cited source (provenance)
+
+
+def test_live_research_seed_passes_real_trends_and_never_fabricates_grounding():
+    seen = {}
+    def gen(o, f, l, t, tr=None):
+        seen["trends"] = list(tr or [])
+        return "Try a weekly digest. Assumption: readers want it"   # no Source: cited
+    c = build_company({"what": "x", "goal": "grow",
+                       "roles": [{"title": "Growth Marketer", "count": 1}]})
+    c.okrs.add_kr(KeyResult("kr1", "reach 1000 signups", target=1000))
+    c._trends = ["[r/startups] AI agents everywhere", "new paper on retention"]
+    loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9, idea_gen_fn=gen)
+    loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
+    loop._last_radar = loop._last_hr = 1e18
+    loop.tick(0)
+    assert seen["trends"] == c._trends                  # REAL radar trends seeded the prompt
+    assert c.ideas[0].grounded_in == ""                 # no Source cited → provenance NOT invented
 
 
 def test_failed_hypothesis_is_preserved_as_learning_not_points():

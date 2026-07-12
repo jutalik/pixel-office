@@ -282,19 +282,28 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
         # may advertise codex/grok while claude is absent).
         _idea_cli = next((c for c in ("claude", "codex", "grok") if c in _avail), None)
 
-        def idea_gen_fn(objective, family, lens, target):   # noqa: E306 — real creativity in --live
-            # a real CLI writes the idea CONTENT (the autonomy loop calls this OUTSIDE
-            # the company lock). Returns "" if no compatible CLI or on any error — the
-            # loop then SKIPS the proposal in live (never attributes a skeleton to the
-            # employee as if their CLI wrote it).
+        def idea_gen_fn(objective, family, lens, target, trends=None):   # noqa: E306 — real creativity in --live
+            # the employee's real CLI RESEARCHES the latest, credible sources (its own
+            # web/search tools) and writes a grounded idea. Called OUTSIDE the company
+            # lock. Returns "" if no compatible CLI or on error → the loop SKIPS the
+            # proposal (never fabricates a trend or attributes a skeleton to the employee).
             if not _idea_cli:
                 return ""
-            prompt = (f"You are a {family} specialist at a company whose goal is: {objective}.\n"
-                      f"Propose ONE small, reversible, creative idea to move this metric: {target}.\n"
-                      f"Think specifically through the '{lens}' lens. Reply in 1-2 sentences; "
-                      f"end with 'Assumption: <your key assumption>'.")
+            seed = ""
+            if trends:                                   # REAL radar signals (empty if no source)
+                seed = "Signals currently on our radar: " + " | ".join(str(t) for t in trends[:5]) + ".\n"
+            prompt = (
+                f"You are a {family} specialist at a company whose goal is: {objective}.\n"
+                f"{seed}"
+                f"RESEARCH the LATEST, most recent developments relevant to moving this metric: {target}. "
+                f"Use your web/search tools if available to find CREDIBLE, RECENT sources — new papers, "
+                f"reputable outlets, primary data — not stale generalities.\n"
+                f"Then propose ONE small, reversible, creative idea grounded in a REAL recent finding, "
+                f"seen through the '{lens}' lens. Reply in 2-3 sentences.\n"
+                f"Cite what you actually found as 'Source: <url or name>' (omit if you found none — do "
+                f"NOT invent one). End with 'Assumption: <your key unproven assumption>'.")
             try:
-                return str(_invoke(_idea_cli, prompt) or "")[:400]
+                return str(_invoke(_idea_cli, prompt) or "")[:600]
             except Exception:
                 return ""
         banner += " · LIVE (real CLI agents — spends tokens; dormant until assigned)"

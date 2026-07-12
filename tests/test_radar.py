@@ -18,8 +18,19 @@ def test_scan_dedupes_across_runs():
     r = TrendRadar(objective="grow", search_fn=search, min_interval_s=0)
     first = r.scan(now=0)
     assert first.trends == ["AI recipes", "meal kits"]     # deduped, trimmed
-    second = r.scan(now=100)                                 # same items → nothing new
-    assert second.trends == [] and calls["n"] == 2
+    second = r.scan(now=100)                                 # same items, still current → same set
+    assert second.trends == ["AI recipes", "meal kits"] and calls["n"] == 2
+
+
+def test_stale_trend_expires_after_ttl_so_current_means_recent():
+    calls = [0]
+    def search(q):
+        calls[0] += 1
+        return ["AI recipes"] if calls[0] == 1 else []   # trending once, then gone
+    r = TrendRadar(objective="grow", search_fn=search, min_interval_s=0, trend_ttl_s=1000)
+    assert r.scan(now=0).trends == ["AI recipes"]
+    assert r.scan(now=500).trends == ["AI recipes"]     # within TTL → still current
+    assert r.scan(now=2000).trends == []                # not seen again + past TTL → expired
 
 
 def test_cadence_gate_is_the_budget():

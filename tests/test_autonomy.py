@@ -110,7 +110,7 @@ def test_one_cadence_failure_does_not_abort_the_others():
     c = _company()
     def boom(now):
         raise RuntimeError("net down")
-    c.scan_trends = boom               # force the radar step to raise
+    c.radar.scan = boom                # force the radar step (now off-lock in phase B) to raise
     loop = AutonomyLoop(c, review_every_s=1000, radar_every_s=1000, hr_every_s=1000)
     r = loop.tick(now=0)
     assert r.reviewed is True          # review ran (before radar) — unaffected

@@ -29,8 +29,10 @@ class TrendRadar:
     search_fn: Optional[SearchFn] = None
     min_interval_s: float = 6 * 3600.0      # budget: at most every 6h by default
     max_trends: int = 8
+    trend_ttl_s: float = 24 * 3600.0        # RECENCY: a trend may resurface after this and
+    #                                         stale ones expire — "current" means recent, not ever
     _last_run: float = field(default=None, repr=False)
-    _seen: set = field(default_factory=set, repr=False)   # dedupe across runs
+    _seen: dict = field(default_factory=dict, repr=False)   # key -> (display, last-seen time)
 
     def query(self) -> str:
         bits = [b for b in (self.niche, self.objective, "latest trends 2026") if b]
@@ -48,13 +50,14 @@ class TrendRadar:
             raw = self.search_fn(q) or []
         except Exception:
             raw = []                         # fail-open: a search error is not fatal
-        fresh: List[str] = []
         for item in raw:
-            if len(fresh) >= self.max_trends:   # cap checked BEFORE append (handles 0)
-                break
             key = str(item).strip().lower()
-            if not key or key in self._seen:
-                continue                     # deterministic dedup across runs
-            self._seen.add(key)
-            fresh.append(str(item).strip())
-        return TrendReport(query=q, trends=fresh, ran=True)
+            if key:
+                prev = self._seen.get(key)
+                display = prev[0] if prev else str(item).strip()   # keep first-seen text
+                self._seen[key] = (display, now)                   # refresh its recency stamp
+        # prune expired entries → the set reflects only what is still RECENT (bounded)
+        self._seen = {k: v for k, v in self._seen.items() if (now - v[1]) < self.trend_ttl_s}
+        # the CURRENT active set: most-recently-seen first, capped
+        active = sorted(self._seen.values(), key=lambda dv: dv[1], reverse=True)
+        return TrendReport(query=q, trends=[d for (d, _t) in active][:self.max_trends], ran=True)

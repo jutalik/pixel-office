@@ -20,6 +20,15 @@ def test_learning_from_a_failed_idea_captures_the_falsified_assumption():
     assert lr.falsified == "paid ads convert"          # the proposer's own words, not invented
 
 
+def test_parse_live_idea_keeps_real_source_drops_fabricated_provenance():
+    from pixel_office.company.creativity import parse_live_idea
+    c, a, g = parse_live_idea("Ship a digest. Source: https://arxiv.org/abs/2401.1. Assumption: readers open it")
+    assert c == "Ship a digest" and a == ("readers open it",) and g == "https://arxiv.org/abs/2401.1"
+    # a non-reference "source" is NOT accepted as provenance (no invented grounding)
+    _, _, g2 = parse_live_idea("Try X. Source: my own intuition. Assumption: it helps")
+    assert g2 == ""
+
+
 def test_split_assumption_keeps_only_what_the_cli_returned():
     from pixel_office.company.creativity import split_assumption
     c, a = split_assumption("Add a weekly digest email. Assumption: users check email weekly")
