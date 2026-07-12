@@ -22,6 +22,7 @@ from typing import List, Optional
 # WebSocket annotation at runtime, and these deps are the `web` extra (cli.py
 # imports this module lazily and reports the missing extra cleanly).
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from .telemetry.hook_events import HookEventFactory
@@ -30,6 +31,19 @@ from .telemetry.tailer import TranscriptTailer
 
 POLL_INTERVAL_S = 0.5
 STATIC_DIR = Path(__file__).parent / "static"
+
+# bytes; a hook body larger than this is dropped (contract §5 "bounded everywhere")
+MAX_HOOK_BODY = 256 * 1024
+# Only these Host names may reach the HTTP API — a DNS-rebinding defense (a page
+# the user visits can rebind a hostname to 127.0.0.1, but its Host header stays
+# the attacker's domain). `po up` binds IPv4 loopback; "testserver" is Starlette's
+# TestClient Host. (IPv6 `::1` is omitted: Starlette matches Host.split(":")[0],
+# which mangles bracketed IPv6, and the default bind is 127.0.0.1 anyway.)
+_ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+# Strict CSP served as a real response header (defense-in-depth alongside the
+# in-page <meta>); mirrors static/office.html.
+_CSP = ("default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+        "connect-src 'self' ws: wss:; img-src 'self' data:; manifest-src 'self';")
 
 
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
@@ -191,6 +205,11 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
         await hub.stop()
 
     app = FastAPI(title="pixel-office", docs_url=None, redoc_url=None, lifespan=lifespan)
+    # DNS-rebinding defense: loopback binding blocks normal remote clients, but a
+    # page the user visits could rebind a hostname to 127.0.0.1 and read the office
+    # over HTTP. Only local Host names may reach the API; WS additionally checks
+    # Origin (see ws_office).
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_ALLOWED_HOSTS)
     app.state.hub = hub
 
     @app.get("/api/meta")
@@ -203,7 +222,7 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
-        return _index_page()
+        return HTMLResponse(_index_page(), headers={"Content-Security-Policy": _CSP})
 
     @app.get("/manifest.webmanifest")
     async def manifest():
@@ -248,8 +267,20 @@ def create_app(transcripts: Optional[List[Path]] = None, *, host_id: str = "loca
         supplied = request.headers.get("x-po-hook-token", "")
         if not hook_token or not hmac.compare_digest(supplied, hook_token):
             return Response(status_code=403)
+        # bounded per contract §5: refuse a declared-oversized body up front, then
+        # accumulate from the STREAM and abort the moment it exceeds the cap — so a
+        # chunked or Content-Length-lying client can't make us buffer an arbitrary
+        # body (memory stays ≤ cap + one chunk).
+        clen = request.headers.get("content-length")
+        if clen is not None and clen.isdigit() and int(clen) > MAX_HOOK_BODY:
+            return Response(status_code=204)
         try:
-            payload = json.loads(await request.body())
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > MAX_HOOK_BODY:
+                    return Response(status_code=204)   # oversized → drop (fail-open)
+            payload = json.loads(bytes(body))
             ev = hook_factory.from_payload(cli, payload)
             if ev is not None:
                 changed = hub.ingest(ev)     # per-event push, no poll latency

@@ -125,3 +125,23 @@ def test_sanitize_meta_idempotent():
 def test_sanitize_meta_non_dict_input():
     assert sanitize_meta(None) == {}
     assert sanitize_meta("string") == {}
+
+
+def test_from_dict_rejects_unsupported_schema_version():
+    # a FROZEN contract must reject shapes it doesn't speak (callers fail open).
+    # 1.5/True must NOT slip through as int(1.5)==int(True)==1.
+    for bad in (2, "nope", 1.5, True, 0):
+        with pytest.raises(ValueError):
+            RawEvent.from_dict(_base(schema_version=bad))
+    # the supported version still round-trips (int, integer-float, digit-string)
+    assert RawEvent.from_dict(_base(schema_version=SCHEMA_VERSION)).schema_version == SCHEMA_VERSION
+    assert RawEvent.from_dict(_base(schema_version=1.0)).schema_version == 1
+    assert RawEvent.from_dict(_base(schema_version="1")).schema_version == 1
+
+
+def test_sanitize_meta_drops_credential_shaped_keys():
+    got = sanitize_meta({
+        "authorization": "Bearer x", "Cookie": "s=1", "access_token": "a",
+        "accessToken": "b", "private_key": "-----", "environment": {"A": 1}, "ok": 2,
+    })
+    assert got == {"ok": 2}

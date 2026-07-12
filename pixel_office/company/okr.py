@@ -62,18 +62,25 @@ class OKRTree:
         raise KeyError(kr_id)
 
     def apply_metrics(self, metrics: dict) -> int:
-        """Update KRs whose `metric` keyword matches a metric name (growth loop)."""
+        """Update each KR from a product metric whose name contains the KR's keyword.
+
+        A keyword that matches MORE THAN ONE metric name is ambiguous and skipped —
+        the office never fabricates progress from an uncertain match (honest by
+        design). This matters for auto-derived keywords like 'features', which could
+        otherwise latch onto an unrelated 'failed_features'.
+        """
         updated = 0
         for k in self.key_results:
             if not k.metric:
                 continue
-            for name, value in metrics.items():
-                if (k.metric.lower() in str(name).lower()
-                        and isinstance(value, (int, float)) and not isinstance(value, bool)
-                        and math.isfinite(value)):
-                    k.current = float(value)
-                    updated += 1
-                    break
+            kw = k.metric.lower()
+            matches = [value for name, value in metrics.items()
+                       if kw in str(name).lower()
+                       and isinstance(value, (int, float)) and not isinstance(value, bool)
+                       and math.isfinite(value)]
+            if len(matches) == 1:          # unique, confident match only
+                k.current = float(matches[0])
+                updated += 1
         return updated
 
     def progress(self, cadence: str = None) -> float:

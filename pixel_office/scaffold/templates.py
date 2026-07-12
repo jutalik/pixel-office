@@ -36,6 +36,7 @@ X-App-Token write auth, and per-request telemetry. ADD FEATURES BELOW — do not
 remove the instrumentation, or the office dashboard stops seeing this service.
 """
 import os
+import secrets
 import sqlite3
 import time
 from pathlib import Path
@@ -43,7 +44,11 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 
-APP_TOKEN = os.environ.get("APP_TOKEN", "dev-token")
+# No baked-in default: an unset APP_TOKEN means writes are DISABLED (fail-closed),
+# never accepted with a guessable value — this matters the moment the service is
+# deployed on a public bind (see Dockerfile). Set APP_TOKEN to enable writes.
+# (.strip() so a whitespace-only value counts as unset — a config mistake, not a token.)
+APP_TOKEN = os.environ.get("APP_TOKEN", "").strip()
 DB = Path(__file__).parent / "app.db"
 app = FastAPI(title="{title}")
 
@@ -58,7 +63,10 @@ def db():
 
 
 def require_token(x_app_token: str = Header(default="")):
-    if x_app_token != APP_TOKEN:
+    if not APP_TOKEN:
+        # fail closed: no token configured → writes are OFF, not open to a default
+        raise HTTPException(status_code=503, detail="writes disabled: set APP_TOKEN")
+    if not secrets.compare_digest(x_app_token, APP_TOKEN):
         raise HTTPException(status_code=401, detail="bad token")
 
 
@@ -176,6 +184,9 @@ WORKDIR /app
 COPY backend/ /app/
 RUN pip install --no-cache-dir fastapi uvicorn
 EXPOSE 8000
+# Writes are fail-closed: pass a token at run time to enable them, e.g.
+#   docker run -e APP_TOKEN="$(openssl rand -hex 16)" -p 8000:8000 <image>
+# Without APP_TOKEN, /health + read APIs work but write endpoints return 503.
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 '''
 

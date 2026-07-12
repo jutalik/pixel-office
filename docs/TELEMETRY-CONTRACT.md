@@ -11,7 +11,9 @@ reconnect support arrive. Changes here are versioned via `schema_version`.
 
 ## 1. Raw event (append-only, versioned)
 
-A raw event is what a source (tailer or hook) emits. It is stored append-only and never mutated.
+A raw event is what a source (tailer or hook) emits — the versioned envelope every adapter mints.
+It is sanitized once at ingest and normalized into reducer state. (A durable append-only *log* of raw
+events with replay is a roadmap item — see §5; today the reducer holds in-memory frontier state.)
 
 ```jsonc
 {
@@ -118,12 +120,15 @@ the same state, regardless of arrival order. Ships with **golden/replay tests**.
   NFKC + casefold + strip normalization, so aliases like `"prompt "`/`toolInput` are caught),
   strings are truncated to ≤256 chars (marker included), oversized keys/bigints/non-finite floats
   are dropped, container depth/size is capped, and unexpected types are dropped. Sanitization runs
-  **exactly once, at the ingest boundary**, and the append-only store
-  persists the **sanitized** form — replay reads exactly what live ingest produced, and the store
-  never contains content.
-- Any CLI-originated text rendered in the UI is **escaped**; the dashboard sets a strict **CSP**.
-- **Bounded** everywhere: reducer state is O(agents × sources); meta values are size-capped;
-  retention/backpressure at the store drops oldest with a visible badge rather than growing forever.
+  **exactly once, at the ingest boundary** (`RawEvent.from_dict`), so **only sanitized metadata ever
+  reaches reducer state or a snapshot** — content never leaves ingest. (A durable append-only event
+  log with replay is a roadmap item; today the reducer holds in-memory frontier state, not a
+  persisted event history.)
+- Any CLI-originated text rendered in the UI is **escaped**; the dashboard sets a strict **CSP** as
+  both a response header (on `/`) and an in-page `<meta>`.
+- **Bounded** everywhere: reducer state is O(agents × sources); meta values are size-capped; the
+  tailer applies file- and byte-level backpressure (bounded files/bytes per poll) so a big cold
+  start never grows memory or blocks serving; oversized hook bodies are dropped.
 - Telemetry **fails open** (never blocks the CLI or product); privileged actions **fail closed**.
 
 ## 6. Transport (snapshot + ordered deltas)

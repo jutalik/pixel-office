@@ -189,3 +189,44 @@ def test_hub_delta_only_on_change(transcript):
         hub = app.state.hub
         assert hub.tick_sync() == []  # startup already consumed the backfill
         assert hub.tick_sync() == []  # steady state: no spurious deltas
+
+
+def test_trusted_host_blocks_foreign_host(transcript):
+    # DNS-rebinding defense: a foreign page's Host header is rejected; the local
+    # Host a real browser on 127.0.0.1 sends is allowed.
+    app = create_app([transcript], hook_token="tok")
+    with TestClient(app) as client:
+        assert client.get("/api/office", headers={"host": "evil.com"}).status_code == 400
+        assert client.get("/api/office", headers={"host": "127.0.0.1:7717"}).status_code == 200
+
+
+def test_dashboard_sets_csp_response_header(transcript):
+    app = create_app([transcript], hook_token="tok")
+    with TestClient(app) as client:
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "default-src 'none'" in r.headers.get("content-security-policy", "")
+
+
+def test_hook_body_is_bounded(transcript):
+    app = create_app([transcript], hook_token="tok")
+    with TestClient(app) as client:
+        # (1) honest oversized Content-Length → dropped by the up-front check
+        big = (b'{"hook_event_name":"PreToolUse","session_id":"big","meta":{"note":"'
+               + b"A" * 300_000 + b'"}}')
+        r = client.post("/hook/claude", content=big,
+                        headers={"x-po-hook-token": "tok", "content-type": "application/json"})
+        assert r.status_code == 204   # oversized → dropped (fail-open), not ingested
+
+        # (2) chunked stream, NO Content-Length → the stream loop still bounds memory
+        def chunks():
+            yield b'{"hook_event_name":"PreToolUse","session_id":"big2","x":"'
+            for _ in range(40):
+                yield b"B" * 10_000
+            yield b'"}'
+        r2 = client.post("/hook/claude", content=chunks(),
+                         headers={"x-po-hook-token": "tok", "content-type": "application/json"})
+        assert r2.status_code == 204
+
+        sids = [row["session_id"] for row in client.get("/api/office").json()["rows"]]
+        assert "big" not in sids and "big2" not in sids

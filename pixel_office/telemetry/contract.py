@@ -32,7 +32,8 @@ SOURCE_CONFIDENCE: Tuple[str, ...] = ("high", "low")
 # ---- meta sanitization -------------------------------------------------------
 # meta must carry metadata only — never prompts, tool args, secrets, or file
 # contents. Sanitization is recursive and bounded; it runs exactly once, at the
-# ingest boundary (RawEvent.from_dict), and the store persists the sanitized form.
+# ingest boundary (RawEvent.from_dict), so only sanitized metadata ever reaches
+# reducer state or any snapshot — content never leaves ingest.
 MAX_META_STRING = 256          # max characters per string value INCLUDING the mark
 MAX_META_DEPTH = 3             # max container nesting depth
 MAX_META_KEYS = 16             # max keys kept per dict
@@ -44,11 +45,21 @@ TRUNCATION_MARK = "…[truncated]"
 FORBIDDEN_META_KEYS = frozenset({
     "prompt", "prompts", "content", "text", "message", "messages",
     "args", "arguments", "argv", "input", "tool_input", "toolinput", "params",
-    "secret", "secrets", "token", "api_key", "apikey", "password",
+    "secret", "secrets", "token", "api_key", "apikey", "password", "passwd", "pwd",
     "file_content", "file_contents", "filecontent", "filecontents",
     "diff", "patch", "code", "output", "stdout", "stderr",
     "userprompt", "systemprompt", "system_prompt", "transcript",
     "command", "cmd", "query", "instructions", "result", "results", "response",
+    # credential/secret-shaped keys (both underscore and camelCase-casefolded forms).
+    # exact-key by design (substring matching would drop legit fields like
+    # "token_count"); this is best-effort defense-in-depth, not a total guarantee.
+    "authorization", "auth", "auth_token", "authtoken", "bearer",
+    "cookie", "cookies", "set-cookie", "setcookie",
+    "credential", "credentials", "access_token", "accesstoken", "access_key", "accesskey",
+    "aws_secret_access_key", "refresh_token", "refreshtoken", "id_token", "idtoken",
+    "private_key", "privatekey", "secret_key", "secretkey", "client_secret", "clientsecret",
+    "api_secret", "apisecret", "github_token", "gh_token", "session_token", "sessiontoken",
+    "env", "environ", "environment",
 })
 
 _DROP = object()  # sentinel: value rejected by the sanitizer
@@ -164,6 +175,22 @@ class RawEvent:
         if confidence not in SOURCE_CONFIDENCE:
             raise ValueError(
                 f"invalid source_confidence {confidence!r}, expected one of {SOURCE_CONFIDENCE}")
+        raw_sv = d.get("schema_version", SCHEMA_VERSION)
+        if isinstance(raw_sv, bool):                       # bool is an int subclass
+            raise ValueError(f"schema_version must be an integer, got {raw_sv!r}")
+        if isinstance(raw_sv, int):
+            schema_version = raw_sv
+        elif isinstance(raw_sv, float) and raw_sv.is_integer():
+            schema_version = int(raw_sv)                   # 1.0 OK, 1.5 rejected below
+        elif isinstance(raw_sv, str) and raw_sv.strip().isdigit():
+            schema_version = int(raw_sv)
+        else:
+            raise ValueError(f"schema_version must be an integer, got {raw_sv!r}")
+        if schema_version != SCHEMA_VERSION:
+            # a FROZEN contract rejects versions it doesn't speak — callers fail open
+            # (the tailer/hook drop the record rather than mis-reduce a newer shape).
+            raise ValueError(
+                f"unsupported schema_version {schema_version} (this build speaks {SCHEMA_VERSION})")
         return RawEvent(
             host_id=str(d["host_id"]),
             cli=str(d["cli"]),
@@ -175,7 +202,7 @@ class RawEvent:
             kind=str(d["kind"]),
             parent_agent_id=(str(d["parent_agent_id"]) if d.get("parent_agent_id") else None),
             source_confidence=confidence,
-            schema_version=int(d.get("schema_version", SCHEMA_VERSION)),
+            schema_version=schema_version,
             meta=sanitize_meta(d.get("meta")),
         )
 

@@ -31,6 +31,17 @@ def test_okr_apply_metrics_from_kpi_surface():
     assert n == 1 and t.key_results[0].current == 40
 
 
+def test_okr_apply_metrics_skips_ambiguous_match():
+    # an auto-derived keyword that matches MORE THAN ONE metric name is ambiguous —
+    # the office must not guess (never fabricate progress from an uncertain match).
+    t = OKRTree(objective="ship")
+    t.add_kr(KeyResult("f", "features", target=10, metric="features"))
+    n = t.apply_metrics({"failed_features": 3, "shipped_features": 7})
+    assert n == 0 and t.key_results[0].current == 0.0   # two candidates → skipped
+    # but a single unambiguous match still updates
+    assert t.apply_metrics({"shipped_features": 7}) == 1 and t.key_results[0].current == 7
+
+
 def test_okr_stalled_and_dupes():
     t = OKRTree(objective="x")
     t.add_kr(KeyResult("a", "a", target=10))

@@ -33,11 +33,33 @@ QUESTIONS = [
 
 _NUM_RE = re.compile(r"\d+(?:\.\d+)?")
 
+# Action verbs / fillers that describe HOW a KR is pursued, not WHAT it measures.
+# The KPI keyword is the noun left after these (and the number) are removed, so a
+# natural-language KR can auto-update from the product's metric surface.
+_KR_STOPWORDS = frozenset({
+    "reach", "ship", "publish", "get", "grow", "hit", "achieve", "launch", "add",
+    "drive", "increase", "raise", "reduce", "cut", "keep", "maintain", "deliver",
+    "to", "a", "an", "the", "of", "per", "our", "new", "active", "total", "at",
+    "least", "under", "over", "and", "or", "by", "below", "above", "than",
+    "from", "with", "into", "up", "down",
+})
+
+
+def _kr_metric(text: str) -> str:
+    """Best-effort KPI keyword from a KR phrase: the last salient noun once the
+    number and action words are stripped (e.g. 'reach 1000 weekly signups' →
+    'signups'). Empty when nothing measurable is named — apply_metrics then simply
+    won't auto-match it, so no false KPI updates are invented."""
+    words = [w.lower() for w in re.findall(r"[A-Za-z]+", text)]
+    nouns = [w for w in words if w not in _KR_STOPWORDS]
+    return nouns[-1] if nouns else ""
+
 
 def _parse_krs(text: str) -> List[dict]:
     """Turn plain phrases into KR dicts. Each comma-separated phrase keeps its
     words as the KR text; the first number in it is the target; a 'weekly'/
-    'monthly' word (default weekly) sets the cadence. No number → target 1 (a
+    'monthly' word (default weekly) sets the cadence; a KPI keyword is derived so
+    the growth loop can match it to a product metric. No number → target 1 (a
     binary milestone), so nothing measurable is invented."""
     out = []
     # drop thousands separators (a comma between digits) so '1,000' stays one KR
@@ -50,11 +72,13 @@ def _parse_krs(text: str) -> List[dict]:
         for c in ("monthly", "weekly"):
             if re.search(rf"\b{c}\b", part, flags=re.I):
                 cadence = c
-                part = re.sub(rf"\b{c}\b", "", part, flags=re.I).strip()
+                part = re.sub(rf"\b{c}\b", "", part, flags=re.I)
                 break
+        part = " ".join(part.split())   # collapse the gap the cadence word left
         m = _NUM_RE.search(part)
         target = float(m.group()) if m else 1.0
-        out.append({"text": part or "goal", "target": target, "cadence": cadence})
+        out.append({"text": part or "goal", "target": target, "cadence": cadence,
+                    "metric": _kr_metric(part)})
     return out
 
 

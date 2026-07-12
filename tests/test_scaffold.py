@@ -58,6 +58,23 @@ def test_parse_krs_keeps_thousands_separated_numbers_as_one_kr():
     assert m.key_results[1].target == 5
 
 
+def test_parse_krs_collapses_gap_and_derives_metric_for_growth_loop():
+    # removing the cadence word must not leave a double space, and a KPI keyword
+    # must be derived so apply_metrics() can auto-update the KR from real metrics.
+    m = answers_to_manifest({"what": "x",
+                             "key_results": "reach 1000 weekly saves, ship 5 features"})
+    k0, k1 = m.key_results
+    assert "  " not in k0.text and k0.text == "reach 1000 saves"   # gap collapsed
+    assert k0.cadence == "weekly" and k0.metric == "saves"          # keyword derived
+    assert k1.metric == "features"
+    # and the derived keyword actually drives the growth loop:
+    from pixel_office.company.okr import KeyResult, OKRTree
+    okrs = OKRTree(objective="x")
+    okrs.add_kr(KeyResult("k0", k0.text, target=k0.target, cadence=k0.cadence, metric=k0.metric))
+    assert okrs.apply_metrics({"saves": 400}) == 1
+    assert okrs.key_results[0].current == 400
+
+
 def test_key_results_survive_json_roundtrip_and_seed_the_company(tmp_path):
     m = Manifest.from_dict({"what": "recipes", "name": "recipeco", "goal": "grow readership",
                             "key_results": [{"text": "ship 10 features", "target": 10, "cadence": "weekly"},
@@ -160,23 +177,33 @@ def test_builder_cleans_up_partial_output_on_failure(tmp_path, monkeypatch):
     assert not (tmp_path / "proj").exists()   # partial dir removed → retry not blocked
 
 
-def test_scaffolded_backend_smoke_passes(tmp_path):
+def test_scaffolded_backend_smoke_passes(tmp_path, monkeypatch):
     # the instrumentation surface of a freshly scaffolded product must answer
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
     m = Manifest.from_dict({"what": "demo api", "stack": "api-service"})
     project = builder.build(m, tmp_path)
-    ns = {"__file__": str(project / "backend" / "app.py")}
     code = (project / "backend" / "app.py").read_text()
+    assert "dev-token" not in code   # no baked-in, guessable default token
+
+    # (1) unset APP_TOKEN → writes are fail-closed (503), reads still answer
+    monkeypatch.delenv("APP_TOKEN", raising=False)
+    ns = {"__file__": str(project / "backend" / "app.py")}
     exec(compile(code, "app.py", "exec"), ns)
     client = TestClient(ns["app"])
     assert client.get("/health").json()["ok"] is True
     assert client.get("/api/telemetry").status_code == 200
-    # write auth enforced
-    assert client.post("/api/items", json={"body": "x"}).status_code == 401
-    assert client.post("/api/items", json={"body": "x"},
-                       headers={"x-app-token": "dev-token"}).status_code == 200
+    assert client.post("/api/items", json={"body": "x"}).status_code == 503  # off, not open
+
+    # (2) APP_TOKEN set → normal write auth (bad token 401, good token 200)
+    monkeypatch.setenv("APP_TOKEN", "s3cret")
+    ns2 = {"__file__": str(project / "backend" / "app.py")}
+    exec(compile(code, "app.py", "exec"), ns2)
+    client2 = TestClient(ns2["app"])
+    assert client2.post("/api/items", json={"body": "x"}).status_code == 401
+    assert client2.post("/api/items", json={"body": "x"},
+                        headers={"x-app-token": "s3cret"}).status_code == 200
 
 
 def test_interactive_flow_with_injected_io():
