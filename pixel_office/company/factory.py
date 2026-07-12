@@ -16,6 +16,7 @@ from .company import Company
 from .employee import Employee
 from .mode import OperatingMode
 from .okr import KeyResult
+from .search import default_search_fn as _default_search_fn
 
 _SLUG = re.compile(r"[^a-z0-9]+")
 
@@ -57,7 +58,10 @@ def build_company(manifest: dict, *, sink=None, host_id: str = "local") -> Compa
     name = manifest.get("name") or manifest.get("slug") or "company"
     objective = manifest.get("goal") or manifest.get("what") or "grow the company"
     mode = OperatingMode.from_dict(manifest.get("mode"))
-    company = Company(str(name), str(objective), mode=mode, host_id=host_id, sink=sink)
+    # radar research runs through the user's own search engine (SearXNG via
+    # PO_SEARXNG_URL); unset → no scan (honest, no fabricated trends).
+    company = Company(str(name), str(objective), mode=mode, host_id=host_id, sink=sink,
+                      niche=str(manifest.get("niche") or ""), search_fn=_default_search_fn())
     _seed_krs(company, manifest)
 
     raw_roles = manifest.get("roles")

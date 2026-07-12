@@ -144,12 +144,20 @@ class Company:
     def roster(self) -> list:
         """Org structure for the office floor: each employee + their department.
         Real org data (from roles), so avatars can group into department rooms."""
+        from . import skills as _skills
         from .routing import department_of
         with self._lock:
-            return [{"id": e.id, "title": e.title, "dept": department_of(e),
-                     "role": e.role, "skills": list(e.skills),
-                     "workflows": list(e.workflows), "tier": e.tier}
-                    for e in self.team.all()]
+            out = []
+            for e in self.team.all():
+                mem = self.runtime.memory_of(e.id)
+                # evidence-based proficiency per skill: a real [0,1] once proven, or
+                # None ("learning") below the sample floor — never an invented score.
+                prof = {s: _skills.aggregate_proficiency(mem, s) for s in e.skills}
+                out.append({"id": e.id, "title": e.title, "dept": department_of(e),
+                            "role": e.role, "skills": list(e.skills),
+                            "workflows": list(e.workflows), "tier": e.tier,
+                            "proficiency": prof})
+            return out
 
     def hr_review(self) -> list:
         return hr_mod.review(self.team, self.runtime.memories, mode=self.mode)

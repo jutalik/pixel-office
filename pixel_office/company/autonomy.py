@@ -92,6 +92,21 @@ def _due(last: Optional[float], now: float, every: float) -> bool:
     return last is None or (now - last) >= every
 
 
+# deterministic (zero-token) meeting: an honest concluded synthesis, NOT fabricated
+# dialogue, and no invented goal updates — real progress lands only from real work.
+def _stub_position(emp_id: str, packet: dict) -> str:
+    return f"prioritize {packet.get('kr', 'the goal')}"
+
+
+def _stub_synthesize(positions, packet) -> "object":
+    from .meeting import Outcome
+    kr = packet.get("kr", "the goal")
+    return Outcome(decisions=[f"align the team on: {kr}"],
+                   actions=[{"dri": a, "task": f"advance {kr}", "deadline": "this week"}
+                            for a in list(positions)[:3]],
+                   goal_updates=[])
+
+
 class AutonomyLoop:
     def __init__(self, company: Company, *, planner_fn: Optional[PlannerFn] = None,
                  max_dispatch: int = 3, review_every_s: float = 3600,
@@ -155,6 +170,16 @@ class AutonomyLoop:
                         c.record_activity("decision", f"reviewed stalled goal: {kr.text}{gate}")
                         break   # one review memo per tick — bounded
                     r.reviewed = True
+                    # a bounded meeting: gather up to 3 employees on the top stalled KR.
+                    # Honest — a concluded synthesis (no fake dialogue, no fabricated goal
+                    # updates); attendees animate + surface in the office meeting room.
+                    stalled = c.okrs.stalled(threshold=0.05)
+                    if stalled and len(c.team) >= 2:
+                        attendees = [e.id for e in c.team.all()[:3]]
+                        c.hold_meeting(f"stalled: {stalled[0].text}", "reprioritize", attendees,
+                                       position_fn=_stub_position, synthesize_fn=_stub_synthesize,
+                                       packet={"kr": stalled[0].text})
+                        c.record_activity("meeting", f"met on: {stalled[0].text}")
                 except Exception:
                     pass
             if _due(self._last_radar, now, self.radar_every_s):

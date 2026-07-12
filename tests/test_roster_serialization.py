@@ -22,6 +22,18 @@ def test_plain_employee_roster_row_is_empty_but_present():
     assert r["role"] == "" and r["skills"] == [] and r["workflows"] == []
 
 
+def test_roster_proficiency_is_evidence_based():
+    from pixel_office.company import skills
+    c = build_company({"what": "x", "roles": [{"title": "backend engineer", "count": 1}]})
+    r = c.roster()[0]
+    assert "proficiency" in r
+    assert all(v is None for v in r["proficiency"].values())      # no evidence yet → "learning"
+    mem = c.runtime.memory_of(r["id"])
+    for _ in range(3):
+        mem.record("task_done", skills.task_class_for("backend-impl", "kr1"), True)
+    assert c.roster()[0]["proficiency"]["backend-impl"] is not None   # emerges from evidence
+
+
 def test_api_company_includes_workflows_key_and_all_originals():
     c = build_company({"what": "x", "roles": [{"title": "backend engineer", "count": 1}]})
     with TestClient(create_app(sources=[], company=c)) as client:
