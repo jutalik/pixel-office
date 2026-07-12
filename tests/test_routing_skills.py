@@ -24,6 +24,14 @@ def test_best_owner_for_step_routes_architecture_to_the_architect():
     assert routing.best_owner_for_step(c, kr, impl_step).role == "backend"
 
 
+def test_best_owner_for_step_routes_a_family_only_step():
+    c = build_company({"what": "x", "roles": [
+        {"title": "Content Writer", "count": 1}, {"title": "Backend Engineer", "count": 1}]})
+    kr = KeyResult("kr1", "publish articles", target=1)
+    step = workflows.get("content-pipeline").steps[0]   # "research": family=content, no skill
+    assert routing.best_owner_for_step(c, kr, step).role == "writer"
+
+
 def test_title_only_routing_is_unchanged():
     # no skills → skill keywords empty → routing behaves exactly as before
     c = Company("x", "grow")

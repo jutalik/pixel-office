@@ -213,6 +213,7 @@ def _cmd_run(args) -> int:
         # DEMO: the deterministic executor SIMULATES work (no real LLM, 0 tokens)
         # so you can see the office move. This is explicitly not real work.
         from .company.runtime import Task
+        company.simulated = True   # honest: the dashboard labels this progress as simulated
         for emp in company.team.all():
             company.runtime.assign(Task(f"[demo] orient on: {company.okrs.objective}", dri=emp.id))
         banner += " · DEMO (simulated activity, no real work)"

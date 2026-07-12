@@ -125,7 +125,7 @@ const STR={
     reset:'Reset',cancel:'Cancel',save:'Save',roomSuffix:' ROOM',meetingRoom:'MEETING ROOM',entrance:'ENTRANCE',
     empty:'no agents yet — run one of your AI CLIs and watch them walk in through the entrance.',
     roster:'Team',workflowsHead:'Workflows',step:'step',noWork:'no active workflow',learning:'learning',
-    creative:'creative',focus:'focus',activityHead:'Activity feed',
+    creative:'creative',focus:'focus',activityHead:'Activity feed',simulated:'simulated',
     act_working:'working',act_waiting:'needs you',act_blocked:'blocked',act_done:'wrapped up',act_walk:'walking in',act_idle:'idle'},
   ko:{connecting:'연결 중…',live:'라이브',offline:'오프라인',team:'직원',working:'작업',waiting:'대기',
     blocked:'막힘',wrapped:'완료',tip:'모든 아바타는 실제 CLI 세션입니다 — 문으로 팀 방에 들어가고, 말풍선에 지금 하는 일이 실시간 텔레메트리로 표시됩니다.',
@@ -136,7 +136,7 @@ const STR={
     reset:'초기화',cancel:'취소',save:'저장',roomSuffix:' 룸',meetingRoom:'회의실',entrance:'입구',
     empty:'아직 에이전트가 없습니다 — AI CLI를 하나 실행하면 입구로 걸어 들어옵니다.',
     roster:'팀',workflowsHead:'워크플로',step:'단계',noWork:'진행 중 워크플로 없음',learning:'학습중',
-    creative:'창의',focus:'주력',activityHead:'활동 피드',
+    creative:'창의',focus:'주력',activityHead:'활동 피드',simulated:'시뮬레이션',
     act_working:'작업 중',act_waiting:'확인 필요',act_blocked:'막힘',act_done:'완료',act_walk:'들어오는 중',act_idle:'유휴'}};
 function t(k){return (STR[LANG]&&STR[LANG][k])||STR.en[k]||k;}
 function applyI18n(){document.documentElement.lang=LANG;
@@ -383,8 +383,9 @@ function renderPanel(){
   $('p_rooms').innerHTML=Object.keys(byRoom).sort().map(c=>
     `<div class="row"><span><span class="swatch" style="background:${cliColor(c)}"></span>${esc(c)}</span><b>${byRoom[c]}</b></div>`).join('')||'<div class="muted">—</div>';
   if(COMPANY){const o=COMPANY, sm=o.summary||{};
+    const simd=sm.simulated?`<span class="tier creative">${t('simulated')}</span>`:'';
     let h=`<div class="card"><div class="row"><b>${esc(sm.name||'company')}</b>`
-      +`<span class="muted">${esc((sm.mode&&sm.mode.drive)||'')}</span></div>`;   // mode is a dict → .drive
+      +`<span><span class="muted">${esc((sm.mode&&sm.mode.drive)||'')}</span>${simd}</span></div>`;   // mode dict → .drive; demo → simulated badge
     (o.okrs||[]).slice(0,5).forEach(k=>{h+=`<div class="row"><span>${esc(k.text||k.metric||'KR')}</span><b>${Math.round((k.progress||0)*100)}%</b></div>`;});
     h+='</div>';$('p_company').innerHTML=h;
     // team roster: real title + role + skill capability badges (honest — no invented mastery scores)

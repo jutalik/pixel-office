@@ -141,7 +141,8 @@ def aggregate_proficiency(mem, skill_id: str) -> Optional[float]:
     if mem is None:
         return None
     suffix = ":" + skill_id
-    classes = {ev.task_class for ev in getattr(mem, "evidence", [])
-               if ev.task_class == skill_id or ev.task_class.endswith(suffix)}
+    tcs = mem.task_classes() if hasattr(mem, "task_classes") \
+        else {ev.task_class for ev in getattr(mem, "evidence", [])}
+    classes = [tc for tc in tcs if tc == skill_id or tc.endswith(suffix)]
     scores: List[float] = [c for c in (mem.competency(tc) for tc in classes) if c is not None]
     return round(sum(scores) / len(scores), 3) if scores else None

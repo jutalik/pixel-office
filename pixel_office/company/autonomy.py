@@ -15,11 +15,24 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-from . import creativity, roles as _roles, skills, workflows
+from . import creativity, metrics, roles as _roles, skills, workflows
 from .company import Company
+from .meeting import admission_test
 from .memo import DecisionMemo
 from .routing import best_owner, best_owner_for_step
 from .runtime import Task
+
+
+def _active_stalled(company: Company, threshold: float = 0.1) -> list:
+    """Stalled KRs that still have room to work — EXCLUDING those whose workflow is
+    already done. A completed playbook shouldn't keep the loop planning/meeting on
+    that KR forever (it waits on real metrics, not more churn)."""
+    out = []
+    for kr in company.okrs.stalled(threshold):
+        run = company.workflows.get(str(kr.id))
+        if run is None or not run.done:
+            out.append(kr)
+    return out
 
 
 @dataclass
@@ -112,7 +125,8 @@ class AutonomyLoop:
     def __init__(self, company: Company, *, planner_fn: Optional[PlannerFn] = None,
                  max_dispatch: int = 3, review_every_s: float = 3600,
                  radar_every_s: float = 6 * 3600, hr_every_s: float = 12 * 3600,
-                 initiative_every_s: float = 6 * 3600):
+                 initiative_every_s: float = 6 * 3600, metrics_every_s: float = 300,
+                 meeting_every_s: float = 4 * 3600):
         self.company = company
         self.planner_fn = planner_fn or default_planner
         self.max_dispatch = max_dispatch
@@ -120,10 +134,14 @@ class AutonomyLoop:
         self.radar_every_s = radar_every_s
         self.hr_every_s = hr_every_s
         self.initiative_every_s = initiative_every_s
+        self.metrics_every_s = metrics_every_s
+        self.meeting_every_s = meeting_every_s
         self._last_review: Optional[float] = None
         self._last_radar: Optional[float] = None
         self._last_hr: Optional[float] = None
         self._last_initiative: Optional[float] = None
+        self._last_metrics: Optional[float] = None
+        self._last_meeting: Optional[float] = None
 
     def tick(self, now: float) -> TickReport:
         c = self.company
@@ -131,7 +149,7 @@ class AutonomyLoop:
         with c._lock:   # serialize company mutations vs /api/company reads
             # 1. plan (BOUNDED): at most max_dispatch tasks toward stalled KRs
             if not c.backlog and len(c.team):
-                for kr in c.okrs.stalled()[:self.max_dispatch]:
+                for kr in _active_stalled(c)[:self.max_dispatch]:
                     try:
                         c.backlog.append(self.planner_fn(c, kr))
                         r.planned += 1
@@ -158,11 +176,26 @@ class AutonomyLoop:
                         c.advance_workflow(task, None)
                     except Exception:
                         pass
-            # 3-5 each INDEPENDENTLY fail-open so one failure can't abort the rest
+            # 3. growth loop (cadence): poll the product's REAL KPI surface → OKRs.
+            #    Only advances a KR from a metric it actually names (honest — unset
+            #    product url → no poll, OKRs stay at 0% until real metrics land).
+            if _due(self._last_metrics, now, self.metrics_every_s):
+                self._last_metrics = now
+                try:
+                    m = metrics.fetch_metrics(getattr(c, "product_url", ""))
+                    if m:
+                        moved = c.okrs.apply_metrics(m)
+                        if moved:
+                            c.record_activity("metric", f"real metrics moved {moved} KR(s)")
+                except Exception:
+                    pass
+            # 4-6 each INDEPENDENTLY fail-open so one failure can't abort the rest
             if _due(self._last_review, now, self.review_every_s):
                 self._last_review = now
                 try:
-                    for kr in c.okrs.stalled(threshold=0.05):
+                    active = _active_stalled(c, 0.05)
+                    if active:
+                        kr = active[0]
                         m = c.memos.open(DecisionMemo(
                             title=f"KR stalled: {kr.text}",
                             dri=(c.team.all()[0].id if len(c.team) else "?"),
@@ -172,18 +205,12 @@ class AutonomyLoop:
                         escalated = any(x is m for x in c.memos.ceo_queue())
                         gate = " → your sign-off" if escalated else " (auto)"
                         c.record_activity("decision", f"reviewed stalled goal: {kr.text}{gate}")
-                        break   # one review memo per tick — bounded
+                    # review also UN-BLOCKS a halted workflow so it retries next tick
+                    for run in list(c.workflows.values()):
+                        if run.blocked and c.clear_workflow(run.kr_id):
+                            c.record_activity("retry", f"unblocked workflow {run.workflow_id}")
+                            break   # one retry per review — bounded
                     r.reviewed = True
-                    # a bounded meeting: gather up to 3 employees on the top stalled KR.
-                    # Honest — a concluded synthesis (no fake dialogue, no fabricated goal
-                    # updates); attendees animate + surface in the office meeting room.
-                    stalled = c.okrs.stalled(threshold=0.05)
-                    if stalled and len(c.team) >= 2:
-                        attendees = [e.id for e in c.team.all()[:3]]
-                        c.hold_meeting(f"stalled: {stalled[0].text}", "reprioritize", attendees,
-                                       position_fn=_stub_position, synthesize_fn=_stub_synthesize,
-                                       packet={"kr": stalled[0].text})
-                        c.record_activity("meeting", f"met on: {stalled[0].text}")
                 except Exception:
                     pass
             if _due(self._last_radar, now, self.radar_every_s):
@@ -203,7 +230,29 @@ class AutonomyLoop:
                         c.record_activity("hr", f"HR review — {len(r.hr_recs)} recommendation(s)")
                 except Exception:
                     pass
-            # 6. individual initiative (BOUNDED): a creative employee proposes one idea
+            # 7. meeting (cadence, ADMISSION-GATED): only when a real decision blocks
+            #    >=2 employees on a workable stalled KR. Attendees gather in the office
+            #    meeting room; the meeting's action items become bounded backlog work.
+            if _due(self._last_meeting, now, self.meeting_every_s):
+                self._last_meeting = now
+                try:
+                    active = _active_stalled(c, 0.05)
+                    if active and admission_test(has_specific_decision=True, attendee_count=len(c.team),
+                                                 delay_cost=1.0, meeting_cost=0.0, async_resolvable=False):
+                        kr = active[0]
+                        attendees = [e.id for e in c.team.all()[:3]]
+                        outcome = c.hold_meeting(f"stalled: {kr.text}", "reprioritize", attendees,
+                                                 position_fn=_stub_position, synthesize_fn=_stub_synthesize,
+                                                 packet={"kr": kr.text})
+                        c.record_activity("meeting", f"met on: {kr.text}")
+                        # action items → bounded REAL backlog work (not display-only)
+                        for act in (getattr(outcome, "actions", None) or [])[:self.max_dispatch]:
+                            dri, task = str(act.get("dri", "")), str(act.get("task", ""))
+                            if dri and task and c.team.get(dri) and len(c.backlog) < self.max_dispatch:
+                                c.add_task(task, dri, task_class="meeting-action")
+                except Exception:
+                    pass
+            # 8. individual initiative (BOUNDED): a creative employee proposes one idea
             #    toward the goal via divergent lenses. Deterministic + honest — an idea
             #    is a PROPOSAL (its unproven claims are assumptions); reversible/local
             #    ideas auto-become one small exploration task, nothing riskier.

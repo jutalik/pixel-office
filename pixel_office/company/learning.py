@@ -16,7 +16,10 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 _ev_ids = itertools.count(1)
-MIN_SAMPLES = 3   # below this, competency is "insufficient evidence"
+MIN_SAMPLES = 3        # below this, competency is "insufficient evidence"
+MAX_EVIDENCE = 500     # bounded history — per-class stats are kept separately, so
+MAX_LESSONS = 100      # trimming the raw lists never changes competency/lessons recall
+MAX_OBSERVATIONS = 300
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,8 @@ class EmployeeMemory:
                rolled_back: bool = False) -> Evidence:
         ev = Evidence(kind=kind, task_class=task_class, ok=ok, ref=ref)
         self.evidence.append(ev)
+        if len(self.evidence) > MAX_EVIDENCE:            # bounded (stats below are the source of truth)
+            del self.evidence[:-MAX_EVIDENCE]
         st = self._stats.setdefault(task_class, _ClassStat())
         st.n += 1
         st.ok += 1 if ok else 0
@@ -84,6 +89,8 @@ class EmployeeMemory:
             self.lessons.append(Lesson(
                 text=f"{'rollback' if rolled_back else 'failure'} on {task_class} ({ref or ev.id})",
                 evidence_id=ev.id, task_class=task_class, confidence=0.6))
+            if len(self.lessons) > MAX_LESSONS:
+                del self.lessons[:-MAX_LESSONS]
         return ev
 
     def add_lesson(self, lesson: Lesson) -> Lesson:
@@ -112,7 +119,14 @@ class EmployeeMemory:
     def observe(self, kind: str, value: str) -> Observation:
         o = Observation(kind=str(kind), value=str(value))
         self.observations.append(o)
+        if len(self.observations) > MAX_OBSERVATIONS:   # bounded — recent behavior is what shapes the trait
+            del self.observations[:-MAX_OBSERVATIONS]
         return o
+
+    def task_classes(self):
+        """The task-classes this employee has any competency evidence for. Sourced
+        from the per-class stats (survives raw-evidence trimming)."""
+        return tuple(self._stats.keys())
 
     def top_trait(self, kind: str, *, min_samples: int = 2) -> Optional[str]:
         """The most-frequently observed value for a kind (e.g. which skill this

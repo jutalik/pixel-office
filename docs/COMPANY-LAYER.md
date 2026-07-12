@@ -322,10 +322,25 @@ the work, never a set label (cf. Generative Agents' observe→reflect→retrieve
   → bounded, gated proposal → policy-based execution — never "do whatever." It
   spends the same dispatch budget, so cost scales with decisions, not wall-clock.
 
-Roadmap (designed with Codex, not yet built): richer trait/relationship
-observations, mentorship-as-task and evidence-gated `SkillAttainment` (learning a
-new skill never silently inflates routing), and a `PromptContext` that feeds
-persona + traits + relationships into `build_prompt`.
+**Now connected end-to-end:**
+- **Growth loop** (`metrics.py`): the autonomy loop polls the product's KPI surface
+  (`PO_PRODUCT_URL` / manifest `product_url`) and feeds the flat numbers into
+  `okr.apply_metrics`, so a live company's OKRs move from **real** metrics (unset →
+  no poll, honest 0%). `--demo` progress is written separately and labelled
+  `simulated` in `summary()` so the dashboard never conflates it with real progress.
+- **Meetings** are admission-gated on their own cadence (not every review), and their
+  action items become bounded backlog work (not display-only). Review also
+  **auto-retries** a blocked workflow (`clear_workflow`). A done-workflow KR is
+  excluded from the workable-stalled set, so a finished playbook stops generating
+  churn.
+- **`build_prompt`** carries persona + skills + the employee's emergent focus +
+  (creative roles) divergent lenses — individuality shows up in the *real work*.
+- Per-employee memory lists are bounded; competency stats are the source of truth,
+  so trimming raw evidence never changes a score.
+
+Roadmap (designed with Codex, still open): richer trait/relationship observations,
+mentorship-as-task, and evidence-gated `SkillAttainment` (learning a new skill never
+silently inflates routing).
 
 Surfaced honestly in `/api/company` (`roster[].role/skills/workflows/tier`,
 `workflows[]` with the live step) and painted in the office CEO panel + avatar role

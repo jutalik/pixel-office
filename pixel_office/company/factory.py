@@ -15,6 +15,7 @@ from . import roles as _roles
 from .company import Company
 from .employee import Employee
 from .mode import OperatingMode
+from .metrics import product_url_for as _product_url_for
 from .okr import KeyResult
 from .search import default_search_fn as _default_search_fn
 
@@ -62,6 +63,7 @@ def build_company(manifest: dict, *, sink=None, host_id: str = "local") -> Compa
     # PO_SEARXNG_URL); unset → no scan (honest, no fabricated trends).
     company = Company(str(name), str(objective), mode=mode, host_id=host_id, sink=sink,
                       niche=str(manifest.get("niche") or ""), search_fn=_default_search_fn())
+    company.product_url = _product_url_for(manifest)   # growth loop polls this (PO_PRODUCT_URL / manifest)
     _seed_krs(company, manifest)
 
     raw_roles = manifest.get("roles")

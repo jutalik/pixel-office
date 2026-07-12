@@ -33,3 +33,10 @@ def test_for_kr_matches_by_family_and_declines_ambiguity():
     # nothing measurable/matchable → None (caller falls back to the plain planner)
     assert workflows.for_kr(_KR("")) is None
     assert workflows.for_kr(_KR("xyzzy qwerty")) is None
+
+
+def test_for_kr_special_triggers_win_over_family():
+    assert workflows.for_kr(_KR("resolve the production outage")) == "incident-response"
+    assert workflows.for_kr(_KR("rearchitect for tradeoffs")) == "architecture-review"
+    # a special trigger beats a competing family word (backend/feature = engineering)
+    assert workflows.for_kr(_KR("outage in the backend feature")) == "incident-response"

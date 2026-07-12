@@ -33,6 +33,8 @@ class Company:
         self.radar = TrendRadar(objective=objective, niche=niche, search_fn=search_fn)
         self._trends: list = []
         self._last_meeting: Optional[dict] = None
+        self.product_url: str = ""       # the live product's base URL (growth-loop KPI polling)
+        self.simulated: bool = False     # True in `--demo`: progress is simulated, labelled as such
         self.backlog: list = []          # pending Tasks (autonomy loop drains this)
         self.workflows: dict = {}        # kr_id -> WorkflowRun (opt-in workflow dispatch)
         self._wf_task_kr: dict = {}      # task.id -> kr_id (attribution for advance_workflow)
@@ -184,6 +186,7 @@ class Company:
             "hr_flags": sum(1 for r in self.hr_review() if r.needs_ceo),
             "trends": len(self._trends),
             "has_meeting": self._last_meeting is not None,
+            "simulated": self.simulated,
         }
 
     def hr_view(self) -> list:
