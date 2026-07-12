@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-from . import creativity, metrics, roles as _roles, skills, workflows
+from . import creativity, ideas as _ideas, metrics, roles as _roles, skills, workflows
 from .company import Company
 from .meeting import admission_test
 from .memo import DecisionMemo
@@ -126,9 +126,13 @@ class AutonomyLoop:
                  max_dispatch: int = 3, review_every_s: float = 3600,
                  radar_every_s: float = 6 * 3600, hr_every_s: float = 12 * 3600,
                  initiative_every_s: float = 6 * 3600, metrics_every_s: float = 300,
-                 meeting_every_s: float = 4 * 3600):
+                 meeting_every_s: float = 4 * 3600, idea_gen_fn=None):
         self.company = company
         self.planner_fn = planner_fn or default_planner
+        # idea_gen_fn(objective, family, lens, target_kr_text) -> str : OPTIONAL live
+        # creativity engine (a real CLI in --live). Called OUTSIDE the company lock;
+        # None → deterministic skeletons (0-token demo/tests).
+        self.idea_gen_fn = idea_gen_fn
         self.max_dispatch = max_dispatch
         self.review_every_s = review_every_s
         self.radar_every_s = radar_every_s
@@ -143,10 +147,13 @@ class AutonomyLoop:
         self._last_metrics: Optional[float] = None
         self._last_meeting: Optional[float] = None
         self._celebrated: set = set()   # KR ids already celebrated at 100% (fire once)
+        self._ticks: int = 0            # monotonic tick counter (idea validation windows)
 
     def tick(self, now: float) -> TickReport:
         c = self.company
         r = TickReport()
+        self._ticks += 1
+        tick_no = self._ticks
         # ---- phase A: plan + choose work (under lock — pure state, NO I/O) --------
         # The lock serializes COMPANY state (backlog/okrs/activity/memos/workflows) vs
         # /api/company reads. Per-employee memory is mutated lock-free in phase B (so
@@ -170,6 +177,24 @@ class AutonomyLoop:
             if do_metrics:
                 self._last_metrics = now
             product_url = getattr(c, "product_url", "")
+            # 2b. initiative DECISION (who/what/lens) — the creative content itself is
+            #     generated in phase B (may hit a live CLI), never under the lock.
+            initiative_plan = None
+            if _due(self._last_initiative, now, self.initiative_every_s):
+                self._last_initiative = now
+                try:
+                    creatives = [e for e in c.team.all() if _roles.is_creative(e)]
+                    active = _active_stalled(c, 0.05)
+                    if creatives and active:
+                        emp = creatives[int(now) % len(creatives)]     # rotate proposers deterministically
+                        kr = active[int(now) % len(active)]            # a KR the team is really pushing
+                        fam = _roles.family_of(emp.role)
+                        lenses = creativity.lenses_for(fam)
+                        initiative_plan = {"emp": emp.id, "kr_id": str(kr.id), "kr_text": kr.text,
+                                           "family": fam, "objective": c.okrs.objective,
+                                           "lens": lenses[int(now) % len(lenses)] if lenses else "smallest-reversible"}
+                except Exception:
+                    initiative_plan = None
         # ---- phase B: I/O OUTSIDE the lock (CLI + HTTP) so /api/company stays --------
         #     responsive. Each employee's CLI can take minutes in live; the growth
         #     poll hits the network. Holding the company lock across either would
@@ -186,8 +211,21 @@ class AutonomyLoop:
                 fetched = metrics.fetch_metrics(product_url)
             except Exception:
                 fetched = None
+        # idea CONTENT generation (D2): a live CLI writes the actual idea in --live;
+        # deterministic skeleton otherwise. Done here so the CLI can't freeze the lock.
+        idea_content = ""
+        if initiative_plan and self.idea_gen_fn is not None:
+            try:
+                idea_content = str(self.idea_gen_fn(
+                    initiative_plan["objective"], initiative_plan["family"],
+                    initiative_plan["lens"], initiative_plan["kr_text"]) or "")
+            except Exception:
+                idea_content = ""
         # ---- phase C: record results + cadence work (under lock — pure state) --------
         with c._lock:
+            # KR baseline BEFORE this tick's metrics land — the snapshot an idea's
+            # delivery is measured against (a later rise must beat this baseline).
+            kr_pre = {str(k.id): float(k.current) for k in c.okrs.key_results}
             for task, result, err in dispatched:
                 if err is not None:
                     # assign raised (fired/unknown DRI): halt any workflow AND leave an
@@ -201,6 +239,7 @@ class AutonomyLoop:
                     continue
                 r.dispatched += 1
                 c.advance_workflow(task, result)   # advance the KR's workflow a step (no-op for plain tasks)
+                c.settle_idea_task(task, result, kr_pre, tick_no)   # idea task → delivered/dropped
                 # honest: only call it work when it actually succeeded
                 if getattr(result, "ok", False):
                     c.record_activity("work", f"{task.dri} → {task.title}")
@@ -216,6 +255,21 @@ class AutonomyLoop:
                         c.record_activity("metric", f"real metrics moved {moved} KR(s)")
                 except Exception:
                     pass
+            # 3b. settle delivered ideas against the NOW-current KRs (post-metrics). A
+            #     delivered idea whose targeted KR rose strictly after delivery becomes
+            #     outcome-ASSOCIATED (correlational, not causal); ambiguous overlaps earn
+            #     no individual points; the window elapses to INCONCLUSIVE. Honest.
+            try:
+                if c.ideas:
+                    kr_now = {str(k.id): float(k.current) for k in c.okrs.key_results}
+                    before = {i.id: i.status for i in c.ideas}
+                    c.settle_ideas(kr_now, tick_no)
+                    for i in c.ideas:
+                        if before.get(i.id) != i.status and i.status == _ideas.ASSOCIATED:
+                            c.record_activity("outcome",
+                                              f"💡 {i.proposer_id}'s {i.lens} idea — {i.target_kr_id} rose +{round(i.associated_delta,3)} after ship (assoc.)")
+            except Exception:
+                pass
             # 4-6 each INDEPENDENTLY fail-open so one failure can't abort the rest
             if _due(self._last_review, now, self.review_every_s):
                 self._last_review = now
@@ -293,24 +347,24 @@ class AutonomyLoop:
                                 pending_titles.add(task)
                 except Exception:
                     pass
-            # 8. individual initiative (BOUNDED): a creative employee proposes one idea
-            #    toward the goal via divergent lenses. Deterministic + honest — an idea
-            #    is a PROPOSAL (its unproven claims are assumptions); reversible/local
-            #    ideas auto-become one small exploration task, nothing riskier.
-            if _due(self._last_initiative, now, self.initiative_every_s):
-                self._last_initiative = now
+            # 8. individual initiative (BOUNDED): the creative employee chosen in phase A
+            #    RECORDS an idea (content written by a live CLI in --live, else a
+            #    deterministic skeleton) against a specific target KR, and — if reversible
+            #    — pursues it as ONE bounded task. The idea earns nothing here; it only
+            #    becomes outcome-associated later if that KR actually rises after it ships.
+            if initiative_plan is not None:
                 try:
-                    creatives = [e for e in c.team.all() if _roles.is_creative(e)]
-                    if creatives:
-                        emp = creatives[int(now) % len(creatives)]   # rotate proposers deterministically
-                        ideas = creativity.validate_ideas(creativity.deterministic_ideas(
-                            c.okrs.objective, _roles.family_of(emp.role), option_count=3))
-                        if ideas:
-                            idea = ideas[0]
-                            c.record_activity("idea", f"{emp.id} proposed {idea.lens}: {idea.title}")
-                            if idea.reversible and len(c.backlog) < self.max_dispatch:
-                                c.add_task(f"explore: {idea.title}", emp.id, task_class="initiative")
-                            r.initiatives = 1
+                    rec = creativity.new_idea_record(
+                        initiative_plan["emp"], initiative_plan["lens"], initiative_plan["kr_id"],
+                        objective=initiative_plan["objective"], content=idea_content,
+                        created_tick=tick_no)
+                    if c.propose_idea(rec) is not None:   # None → ledger full of active ideas, skip
+                        c.record_activity("idea", f"{rec.proposer_id} proposed [{rec.lens}] → {initiative_plan['kr_text']}")
+                        if rec.reversible and len(c.backlog) < self.max_dispatch:
+                            t = Task(title=f"explore [{rec.lens}]: {rec.content}"[:200],
+                                     dri=rec.proposer_id, task_class="initiative")
+                            c.pursue_idea(rec, t)
+                        r.initiatives = 1
                 except Exception:
                     pass
             # 9. milestone celebration (HONEST): a Key Result that has actually reached

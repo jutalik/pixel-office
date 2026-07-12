@@ -38,6 +38,7 @@ class Company:
         self.backlog: list = []          # pending Tasks (autonomy loop drains this)
         self.workflows: dict = {}        # kr_id -> WorkflowRun (opt-in workflow dispatch)
         self._wf_task_kr: dict = {}      # task.id -> kr_id (attribution for advance_workflow)
+        self.ideas: list = []            # IdeaRecord ledger (propose→outcome-associated; ideas.py)
         self.activity: list = []         # bounded feed of what the company did (CEO watch)
         # guards company state (memos/backlog/trends/okrs/activity) when the
         # autonomy thread mutates it while the API reads it. RLock: summary() ->
@@ -122,6 +123,69 @@ class Company:
                             "done": run.done, "blocked": run.blocked,
                             "retries": run.retries, "abandoned": run.abandoned})
             return out
+
+    # ---- idea ledger: propose → pursue → deliver → outcome-associated (ideas.py) ----
+    def propose_idea(self, record):
+        """Add a proposed idea to the ledger (HARD bounded). Reclaims terminal slots
+        first; if the ledger is still full of ACTIVE records, the proposal is skipped
+        (returns None) rather than dropping an in-flight idea/task link. Called under
+        the tick lock."""
+        from . import ideas as _ideas
+        _ideas.evict(self.ideas)
+        if len(self.ideas) >= _ideas.MAX_IDEAS:
+            return None
+        self.ideas.append(record)
+        return record
+
+    def pursue_idea(self, record, task) -> None:
+        """Link a bounded exploration task to an idea and enqueue it (no fabricated
+        progress — the idea only earns anything if this task really succeeds)."""
+        from . import ideas as _ideas
+        record.task_id = getattr(task, "id", None)
+        record.status = _ideas.PURSUED
+        self.backlog.append(task)
+
+    def settle_idea_task(self, task, result, kr_current: dict, now_tick: int) -> None:
+        """On a pursued idea's task result: success → DELIVERED + snapshot the target
+        KR (baseline for a later rise); failure → DROPPED (zero points, honest)."""
+        from . import ideas as _ideas
+        tid = getattr(task, "id", None)
+        if tid is None:
+            return
+        rec = next((i for i in self.ideas if i.task_id == tid and i.status == _ideas.PURSUED), None)
+        if rec is None:
+            return
+        if getattr(result, "ok", False):
+            rec.status = _ideas.DELIVERED
+            rec.delivered_at = int(now_tick)
+            rec.kr_snapshot = float(kr_current.get(rec.target_kr_id, 0.0))
+        else:
+            rec.status = _ideas.DROPPED
+            rec.settled_at = int(now_tick)
+
+    def settle_ideas(self, kr_current: dict, now_tick: int) -> int:
+        from . import ideas as _ideas
+        n = _ideas.settle(self.ideas, kr_current, int(now_tick))
+        _ideas.evict(self.ideas)
+        return n
+
+    def ideas_view(self, limit: int = 6) -> dict:
+        """Honest idea board for the CEO panel: associated outcomes (correlational,
+        never causal), plus what's still in flight and per-proposer standing."""
+        from . import ideas as _ideas
+        with self._lock:
+            assoc = [i for i in self.ideas if i.status == _ideas.ASSOCIATED]
+            assoc.sort(key=lambda i: i.outcome_points, reverse=True)
+            pending = [i for i in self.ideas if i.status in (_ideas.PROPOSED, _ideas.PURSUED, _ideas.DELIVERED)]
+            def row(i):
+                return {"proposer": i.proposer_id, "lens": i.lens, "content": i.content,
+                        "target": i.target_kr_id, "status": i.status,
+                        "delta": round(i.associated_delta, 3), "points": round(i.outcome_points, 3)}
+            rep = _ideas.proposer_reputation(self.ideas)
+            top = sorted(rep.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+            return {"associated": [row(i) for i in assoc[:limit]],
+                    "pending": [row(i) for i in pending[-limit:]],
+                    "reputation": [{"proposer": p, "points": round(v, 3)} for p, v in top]}
 
     def record_activity(self, kind: str, text: str) -> None:
         """Append one real thing the company did (plan/work/decision/trend/hr).

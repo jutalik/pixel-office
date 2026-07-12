@@ -10,8 +10,11 @@ keeps the options genuinely different — and it stays deterministic.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Tuple
+import itertools
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
+
+_idea_ids = itertools.count(1)
 
 # divergent lenses per role family (not a "right answer" — different angles)
 LENSES = {
@@ -32,6 +35,54 @@ class Idea:
     assumptions: Tuple[str, ...] = ()
     reversible: bool = True
     cost: str = "small"
+
+
+@dataclass
+class IdeaRecord:
+    """A proposed idea tracked through its lifecycle (see ideas.py). MUTABLE — the
+    autonomy loop advances its status only on REAL events (task success, a targeted
+    KR rising). Never carries an 'impact' number; only outcome-associated evidence.
+
+    Two assumption lists are kept SEPARATE and honest: `system_assumptions` is the
+    always-true epistemic floor (this is unproven), owned by the system; the optional
+    `proposer_assumptions` holds ONLY what a live LLM actually returned — never
+    synthesized, so nothing fabricated is attributed to the employee."""
+    proposer_id: str
+    lens: str
+    content: str                 # the idea itself (deterministic skeleton, or live LLM text)
+    target_kr_id: str            # the KR this idea explicitly aims to move (not guessed)
+    reversible: bool = True
+    cost: str = "small"
+    system_assumptions: Tuple[str, ...] = ()
+    proposer_assumptions: Tuple[str, ...] = ()
+    status: str = "proposed"
+    task_id: Optional[int] = None
+    created_tick: int = 0
+    delivered_at: int = -1       # tick the pursued task succeeded (snapshot taken then)
+    kr_snapshot: float = 0.0     # target KR value AT delivery (baseline for a later rise)
+    associated_delta: float = 0.0
+    outcome_points: float = 0.0  # earned ONLY on exclusive post-delivery association
+    settled_at: int = -1
+    id: int = field(default_factory=lambda: next(_idea_ids))
+
+
+def new_idea_record(proposer_id: str, lens: str, target_kr_id: str, *,
+                    objective: str = "", content: str = "",
+                    proposer_assumptions: Tuple[str, ...] = (),
+                    reversible: bool = True, cost: str = "small",
+                    created_tick: int = 0) -> IdeaRecord:
+    """Build a ledger record. `content` may be a live LLM's idea text; when empty a
+    deterministic skeleton is used (0-token demo/tests). The system floor assumption
+    is ALWAYS attached (truthful epistemic status, not a fabricated claim)."""
+    obj = str(objective or "the goal").strip() or "the goal"
+    body = " ".join(str(content or "").split())[:280] or \
+        f"[{lens}] a small reversible experiment toward {obj}"
+    floor = (f"unverified that this {lens} idea moves {target_kr_id or obj}",)
+    keep = tuple(" ".join(str(a).split())[:160] for a in (proposer_assumptions or ()) if str(a).strip())[:3]
+    return IdeaRecord(proposer_id=str(proposer_id), lens=str(lens), content=body,
+                      target_kr_id=str(target_kr_id or ""), reversible=bool(reversible),
+                      cost=str(cost), system_assumptions=floor, proposer_assumptions=keep,
+                      created_tick=int(created_tick))
 
 
 def lenses_for(family: str) -> Tuple[str, ...]:

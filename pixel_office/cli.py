@@ -218,14 +218,29 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
     app = create_app(sources=[], company=company, host_id=host_id, run_mode=run_mode)
     company.runtime.sink = app.state.hub.ingest
     banner = f"{company.name} · {len(company.team)} employees · mode {company.mode.drive}"
+    idea_gen_fn = None
     if live:
         # REAL employees: activate installed CLIs to do actual work. This SPENDS
         # TOKENS. Employees stay dormant until assigned work — no auto-run here.
         from .company.cli_invoke import make_subprocess_invoke
         from .company.executor_cli import CLIExecutor
-        company.runtime.executor = CLIExecutor(invoke_fn=make_subprocess_invoke(),
+        _invoke = make_subprocess_invoke()
+        company.runtime.executor = CLIExecutor(invoke_fn=_invoke,
                                                memories=company.runtime.memories,
                                                objective=company.okrs.objective)
+
+        def idea_gen_fn(objective, family, lens, target):   # noqa: E306 — real creativity in --live
+            # a real CLI writes the idea CONTENT (the autonomy loop calls this OUTSIDE
+            # the company lock). Bounded, fail-soft: on any error the loop falls back
+            # to a deterministic skeleton (never blocks, never fabricates a claim).
+            prompt = (f"You are a {family} specialist at a company whose goal is: {objective}.\n"
+                      f"Propose ONE small, reversible, creative idea to move this metric: {target}.\n"
+                      f"Think specifically through the '{lens}' lens. Reply in 1-2 sentences; "
+                      f"end with 'Assumption: <your key assumption>'.")
+            try:
+                return str(_invoke("claude", prompt) or "")[:400]
+            except Exception:
+                return ""
         banner += " · LIVE (real CLI agents — spends tokens; dormant until assigned)"
         print("live: employees will use your real CLIs and SPEND TOKENS when assigned work.",
               file=sys.stderr)
@@ -254,7 +269,8 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
                             hr_every_s=(90 if demo else 12 * 3600),
                             meeting_every_s=(40 if demo else 4 * 3600),
                             initiative_every_s=(25 if demo else 6 * 3600),
-                            metrics_every_s=(20 if demo else 300))
+                            metrics_every_s=(20 if demo else 300),
+                            idea_gen_fn=idea_gen_fn)
         stop = threading.Event()
         interval = 6.0
 

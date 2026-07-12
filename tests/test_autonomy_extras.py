@@ -1,8 +1,45 @@
 import pixel_office.company.metrics as metrics
+from pixel_office.company import ideas
 from pixel_office.company.autonomy import AutonomyLoop, default_planner, workflow_planner
 from pixel_office.company.factory import build_company
 from pixel_office.company.okr import KeyResult
 from pixel_office.company.runtime import TaskResult
+
+
+def test_idea_becomes_outcome_associated_only_after_target_kr_rises_post_delivery():
+    c = build_company({"what": "x", "goal": "grow",
+                       "roles": [{"title": "Growth Marketer", "count": 1}]})
+    c.okrs.add_kr(KeyResult("kr1", "reach 1000 signups", target=1000))
+    c.runtime.executor = lambda emp, task: TaskResult(task.id, emp.id, True, "ok")
+    loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9)   # propose once (first tick)
+    loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
+    loop._last_radar = loop._last_hr = 1e18
+    loop.tick(0)                      # propose + pursue (idea task queued)
+    loop.tick(1)                      # idea task delivered; snapshot the target KR
+    idea = c.ideas[0]
+    assert idea.status == ideas.DELIVERED and idea.kr_snapshot == 0.0
+    assert idea.outcome_points == 0.0             # delivering alone earns NOTHING
+    c.okrs.key_results[0].current = 7             # the targeted KR really rose AFTER delivery
+    loop.tick(2)                      # settle → outcome-associated (correlational)
+    assert idea.status == ideas.ASSOCIATED and idea.outcome_points == 7.0
+    view = c.ideas_view()
+    assert view["reputation"] and view["reputation"][0]["proposer"] == idea.proposer_id
+    assert "outcome" in [a["kind"] for a in c.activity_view(50)]
+
+
+def test_idea_whose_task_fails_is_dropped_with_zero_points():
+    c = build_company({"what": "x", "goal": "grow",
+                       "roles": [{"title": "Growth Marketer", "count": 1}]})
+    c.okrs.add_kr(KeyResult("kr1", "reach 1000 signups", target=1000))
+    c.runtime.executor = lambda emp, task: TaskResult(task.id, emp.id, False, "blocked")
+    loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9)
+    loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
+    loop._last_radar = loop._last_hr = 1e18
+    loop.tick(0); loop.tick(1)
+    idea = c.ideas[0]
+    c.okrs.key_results[0].current = 50            # even if the KR later rises...
+    loop.tick(2)
+    assert idea.status == ideas.DROPPED and idea.outcome_points == 0.0   # ...a failed idea earns nothing
 
 
 def _team_company(kr_text="ship 5 signups", metric="signups"):

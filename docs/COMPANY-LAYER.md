@@ -338,6 +338,46 @@ the work, never a set label (cf. Generative Agents' observe→reflect→retrieve
 - Per-employee memory lists are bounded; competency stats are the source of truth,
   so trimming raw evidence never changes a score.
 
+## 13. Idea → outcome → reputation (honest "wow points")
+
+The point of a creative team isn't flashy proposals — it's ideas that *work*. This
+loop (`ideas.py`, `creativity.IdeaRecord`) recognizes ideas ONLY by real outcomes,
+and is deliberately conservative about what it claims.
+
+**Lifecycle** (driven by the autonomy tick):
+1. **propose** — the initiative cadence picks a creative employee, a divergent lens,
+   and an explicit **target KR** it aims to move (never guessed). The idea's *content*
+   is a deterministic skeleton in `--demo`/tests (0 tokens) or, in `--live`, written by
+   the employee's **real CLI** (`idea_gen_fn`, called OUTSIDE the company lock so it
+   can't freeze the dashboard).
+2. **pursue** — a reversible idea becomes ONE bounded exploration task (linked by id).
+3. **deliver / drop** — task succeeds → `DELIVERED` + the target KR is snapshotted at
+   the *end of the delivery tick*; task fails → `DROPPED` (zero points).
+4. **settle** — on a later tick, if the targeted KR rose *strictly after* delivery, the
+   idea becomes `ASSOCIATED`; the window elapses to `INCONCLUSIVE` (zero points) if it
+   doesn't.
+
+**Honesty rules (non-negotiable):**
+- It is **correlation, not causation.** Fields say `associated_delta` / `outcome_points`
+  (never "impact"); the UI says *"KR rose after ship — association only, not proof the
+  idea caused it."*
+- **Individual credit only on EXCLUSIVE attribution** — if two ideas are in flight
+  against the same KR, its rise can't be pinned on either, so neither earns points
+  (team-level recognition only). Splitting a delta would be an invented rule.
+- **A rise must be strictly later than delivery** (a stored `delivered_at` tick; the
+  baseline is re-set to the post-delivery-tick level so a same-tick jump never counts).
+- **No fabricated assumptions**: a system-owned floor assumption ("unverified that this
+  moves KR X") is always attached (truthful epistemic status); only assumptions a live
+  LLM actually returned are kept as `proposer_assumptions`.
+- **Bounded, active-safe**: the ledger is hard-capped; only terminal records are
+  evicted (never an in-flight idea or its task link), and a full ledger skips the new
+  proposal rather than dropping an active one.
+
+**Reputation** (`ideas.proposer_reputation`): a proposer's standing = the sum of their
+*exclusively-associated* ideas' points — evidence-based, 0 until a first validated
+outcome, surfaced in the CEO panel ("brings validated ideas"). Nobody earns standing
+for a proposal that didn't demonstrably move the number.
+
 Roadmap (designed with Codex, still open): richer trait/relationship observations,
 mentorship-as-task, and evidence-gated `SkillAttainment` (learning a new skill never
 silently inflates routing).

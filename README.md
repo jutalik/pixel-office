@@ -69,6 +69,13 @@ to run a service, not just how to look busy.
 - **Evidence-based individuality** — each employee has a private memory. A "focus" or a
   competency score only appears once the work *proves* it; below the evidence floor it
   reads **"learning"** rather than inventing a number.
+- **Ideas that have to *work*** — employees propose creative ideas (real-CLI-written in
+  `--live`), each aimed at a specific Key Result. An idea earns standing for its author
+  **only if it ships and the targeted KR actually rises afterward** — and even then it's
+  labelled *"association only, not proof the idea caused it."* No points for a
+  good-sounding pitch; creativity is pointed at real outcomes, not theater.
+
+![Ideas & outcomes — honest, correlational recognition](docs/img/ideas.png)
 
 Click any employee to open their profile — their role, tier, skills (with real
 proficiency or "learning"), focus, and active workflows:

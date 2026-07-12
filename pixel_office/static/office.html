@@ -90,6 +90,7 @@
   <h3 data-i18n="ceodesk">CEO desk</h3><div id="p_company"><div class="muted" data-i18n="ceodesk_note">Requires the Company Layer (po run).</div></div>
   <h3 data-i18n="roster">Team</h3><div id="p_roster"></div>
   <h3 data-i18n="workflowsHead">Workflows</h3><div id="p_workflows"></div>
+  <h3 data-i18n="ideasHead">Ideas &amp; outcomes</h3><div id="p_ideas"></div>
   <h3 data-i18n="activityHead">Activity feed</h3><div id="p_activity"></div>
   <h3 style="margin-top:16px" data-i18n="tipHead">Tip</h3><div class="muted" data-i18n="clickTip">Click any employee to customize their look &amp; name.</div>
 </aside>
@@ -139,6 +140,8 @@ const STR={
     reset:'Reset',cancel:'Cancel',save:'Save',roomSuffix:' ROOM',meetingRoom:'MEETING ROOM',entrance:'ENTRANCE',
     empty:'no agents yet — run one of your AI CLIs and watch them walk in through the entrance.',
     roster:'Team',workflowsHead:'Workflows',step:'step',noWork:'no active workflow',learning:'learning',
+    ideasHead:'Ideas & outcomes',noIdeas:'no ideas yet',ideaPending:'in flight',ideaAssoc:'KR rose after ship',
+    assocNote:'association only — not proof the idea caused it',topIdeators:'brings validated ideas',
     creative:'creative',focus:'focus',activityHead:'Activity feed',simulated:'simulated',close:'Close',
     tip_demo:'a SIMULATED demo company — deterministic activity, no real work or tokens.',
     tip_live:'every avatar is a real employee running your CLIs on real work (spends tokens).',
@@ -155,6 +158,8 @@ const STR={
     reset:'초기화',cancel:'취소',save:'저장',roomSuffix:' 룸',meetingRoom:'회의실',entrance:'입구',
     empty:'아직 에이전트가 없습니다 — AI CLI를 하나 실행하면 입구로 걸어 들어옵니다.',
     roster:'팀',workflowsHead:'워크플로',step:'단계',noWork:'진행 중 워크플로 없음',learning:'학습중',
+    ideasHead:'아이디어 & 성과',noIdeas:'아직 아이디어 없음',ideaPending:'진행 중',ideaAssoc:'배포 후 KR 상승',
+    assocNote:'상관관계일 뿐 — 아이디어가 원인이라는 증명 아님',topIdeators:'검증된 아이디어 기여',
     creative:'창의',focus:'주력',activityHead:'활동 피드',simulated:'시뮬레이션',close:'닫기',
     tip_demo:'시뮬레이션 데모 회사입니다 — 결정론적 활동이며 실제 작업·토큰 소모가 없습니다.',
     tip_live:'모든 아바타는 실제 직원으로, 당신의 CLI로 진짜 작업을 수행합니다(토큰 소모).',
@@ -437,7 +442,7 @@ function renderPanel(){
     }).join('')||'<div class="muted">—</div>';
     // activity feed — makes agency (idea proposals, meetings, work, milestones) visible.
     // milestone = a KR that really hit 100% → highlighted so real wins pop.
-    const AKIND={milestone:'#ffd479',meeting:'#8ab4ff',idea:'#c9a2ff',work:'#6ee7a8',blocked:'#ff8a8a',metric:'#6ee7a8'};
+    const AKIND={milestone:'#ffd479',outcome:'#c9a2ff',meeting:'#8ab4ff',idea:'#c9a2ff',work:'#6ee7a8',blocked:'#ff8a8a',metric:'#6ee7a8'};
     $('p_activity').innerHTML=(o.activity||[]).slice().reverse().slice(0,8).map(a=>{
       const c=AKIND[a.kind]||'#7a7f92',mile=a.kind==='milestone';
       return `<div class="row"${mile?' style="background:rgba(255,212,121,.10);border-radius:4px"':''}>`
@@ -448,8 +453,28 @@ function renderPanel(){
     const wf=(o.workflows||[]).filter(w=>!w.done);
     $('p_workflows').innerHTML=wf.length?wf.map(w=>
       `<div class="row"><span>${esc(w.workflow_id)}</span><b>${t('step')} ${(w.step||0)+1}/${w.steps||'?'}${w.blocked?' ⚠':''}</b></div>`).join(''):`<div class="muted">${t('noWork')}</div>`;
-  } else { ROSTER={}; ['p_roster','p_workflows','p_activity'].forEach(id=>{const el=$(id);if(el)el.innerHTML='';}); }
+    // ideas → outcomes (HONEST: an associated KR rise is CORRELATION, not proof the
+    // idea caused it; individual credit only on exclusive attribution — see server).
+    renderIdeas(o.ideas||{});
+  } else { ROSTER={}; ['p_roster','p_workflows','p_ideas','p_activity'].forEach(id=>{const el=$(id);if(el)el.innerHTML='';}); }
 }
+function renderIdeas(o){const el=$('p_ideas');if(!el)return;
+  const assoc=o.associated||[],pend=o.pending||[],rep=o.reputation||[];
+  if(!assoc.length&&!pend.length){el.innerHTML=`<div class="muted">${t('noIdeas')}</div>`;return;}
+  let h='';
+  // outcome-associated ideas (a targeted KR rose AFTER the idea shipped) — worded as
+  // correlation, never causation, and marked with the honest note.
+  for(const i of assoc){h+=`<div class="row" style="background:rgba(201,162,255,.10);border-radius:4px">`
+    +`<span style="font-size:11px;max-width:150px">💡 ${esc(i.proposer)} · ${esc(i.lens)}</span>`
+    +`<b style="color:#c9a2ff">+${i.delta} · ${esc(i.target)}</b></div>`;}
+  // in-flight ideas (proposed/pursued/delivered) — no points claimed
+  for(const i of pend.slice(-3)){h+=`<div class="row"><span class="muted" style="font-size:10px">${esc(i.status)}</span>`
+    +`<span style="font-size:11px;text-align:right;max-width:170px">${esc(i.proposer)} · ${esc(i.lens)}</span></div>`;}
+  if(assoc.length)h+=`<div class="muted" style="font-size:9px;margin-top:2px">${t('assocNote')}</div>`;
+  // proposers who bring VALIDATED ideas (evidence-based standing)
+  if(rep.length){h+=`<div class="muted" style="font-size:10px;margin-top:4px">${t('topIdeators')}</div>`;
+    for(const p of rep){h+=`<div class="row"><span style="font-size:11px">${esc(p.proposer)}</span><b>${p.points}</b></div>`;}}
+  el.innerHTML=h;}
 async function pollCompany(){try{const r=await fetch('/api/company');COMPANY=(r.status===204)?null:await r.json();}catch(e){COMPANY=null;}
   const mt=COMPANY&&COMPANY.meeting;   // a fresh meeting → its attendees gather in the meeting room for a window
   if(mt&&mt.attendees&&mt.attendees.length){const sig=(mt.topic||'')+'|'+mt.attendees.join(',');
