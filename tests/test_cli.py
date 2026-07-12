@@ -26,6 +26,27 @@ def test_capability_note_when_no_cli_still_points_to_demo(monkeypatch):
     assert "no AI CLIs detected" in note and "po run --demo" in note   # honest: demo still works
 
 
+def test_po_new_product_url_wires_growth_loop_and_notes_validation(tmp_path, capsys, monkeypatch):
+    import json as _json
+    monkeypatch.setattr(doctor, "run", lambda: {"clis": {}})
+    monkeypatch.setattr("pixel_office.company.metrics.fetch_metrics", lambda url, timeout=1.5: {"signups": 3})
+    rc = cli._cmd_new(_args(dir=str(tmp_path), what="blog", name="rb", goal="", niche="",
+                            stack="api-service", benchmarks="", roles="", kr="", mode="Copilot",
+                            product_url="http://127.0.0.1:9999", yes=True))
+    out = capsys.readouterr().out
+    assert rc == 0 and "growth loop" in out and "validated against real metrics" in out
+    saved = _json.loads((tmp_path / "rb" / "pixel-office.json").read_text())
+    assert saved["product_url"] == "http://127.0.0.1:9999"        # persisted for `po run`
+
+
+def test_po_new_without_product_url_warns_outcomes_unvalidated(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(doctor, "run", lambda: {"clis": {}})
+    cli._cmd_new(_args(dir=str(tmp_path), what="blog", name="b2", goal="", niche="",
+                       stack="api-service", benchmarks="", roles="", kr="", mode="Copilot",
+                       product_url=None, yes=True))
+    assert "UNVALIDATED" in capsys.readouterr().out               # honest: no metrics → no validation
+
+
 def test_po_new_surfaces_env_and_company_next_steps(tmp_path, capsys, monkeypatch):
     # a new user should learn what they can run (env) AND the right next command
     monkeypatch.setattr(doctor, "run", lambda: {"clis": {"claude": {"available": True}}})

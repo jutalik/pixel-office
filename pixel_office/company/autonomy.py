@@ -148,6 +148,21 @@ class AutonomyLoop:
         self._last_meeting: Optional[float] = None
         self._celebrated: set = set()   # KR ids already celebrated at 100% (fire once)
         self._ticks: int = 0            # monotonic tick counter (idea validation windows)
+        self._kr_hist: list = []        # bounded (tick, {kr_id: value}) — for baseline trend
+
+    def _baseline_rate(self, kr_id: str, at_tick: int):
+        """The target KR's own per-tick trend BEFORE delivery, from recent history — so
+        an idea is credited only for the EXCESS above what the KR was already doing.
+        Returns (rate, established): established is False when there isn't enough history
+        to establish a trend, in which case the idea is NOT creditable (0 is not
+        conservative for a growing KR — it would credit secular growth)."""
+        pts = [(t, d[kr_id]) for (t, d) in self._kr_hist if kr_id in d and t <= at_tick]
+        if len(pts) < 2:
+            return 0.0, False
+        (t0, v0) = pts[-min(len(pts), _ideas.BASELINE_WINDOW + 1)]
+        (t1, v1) = pts[-1]
+        rate = (v1 - v0) / (t1 - t0) if t1 != t0 else 0.0
+        return rate, True
 
     def tick(self, now: float) -> TickReport:
         c = self.company
@@ -189,10 +204,16 @@ class AutonomyLoop:
                         emp = creatives[int(now) % len(creatives)]     # rotate proposers deterministically
                         kr = active[int(now) % len(active)]            # a KR the team is really pushing
                         fam = _roles.family_of(emp.role)
-                        lenses = creativity.lenses_for(fam)
+                        lenses = list(creativity.lenses_for(fam)) or ["smallest-reversible"]
+                        # steer AWAY from a lens already falsified on this KR (diversify),
+                        # falling back to the rotation if every lens has been tried.
+                        tried = c.falsified_lenses()
+                        fresh = [l for l in lenses if (str(kr.id), l) not in tried]
+                        pool = fresh or lenses
                         initiative_plan = {"emp": emp.id, "kr_id": str(kr.id), "kr_text": kr.text,
+                                           "kr_target": float(getattr(kr, "target", 0) or 0),
                                            "family": fam, "objective": c.okrs.objective,
-                                           "lens": lenses[int(now) % len(lenses)] if lenses else "smallest-reversible"}
+                                           "lens": pool[int(now) % len(pool)]}
                 except Exception:
                     initiative_plan = None
         # ---- phase B: I/O OUTSIDE the lock (CLI + HTTP) so /api/company stays --------
@@ -243,7 +264,11 @@ class AutonomyLoop:
                     continue
                 r.dispatched += 1
                 c.advance_workflow(task, result)   # advance the KR's workflow a step (no-op for plain tasks)
-                c.settle_idea_task(task, result, kr_pre, tick_no)   # idea task → delivered/dropped
+                # idea task → delivered (with its target KR's pre-delivery trend) / dropped
+                _rec = next((i for i in c.ideas if i.task_id == getattr(task, "id", None)
+                             and i.status == _ideas.PURSUED), None)
+                _brate, _bok = self._baseline_rate(_rec.target_kr_id, tick_no) if _rec else (0.0, True)
+                c.settle_idea_task(task, result, kr_pre, tick_no, baseline_rate=_brate, baseline_ok=_bok)
                 # honest: only call it work when it actually succeeded
                 if getattr(result, "ok", False):
                     c.record_activity("work", f"{task.dri} → {task.title}")
@@ -263,17 +288,29 @@ class AutonomyLoop:
             #     delivered idea whose targeted KR rose strictly after delivery becomes
             #     outcome-ASSOCIATED (correlational, not causal); ambiguous overlaps earn
             #     no individual points; the window elapses to INCONCLUSIVE. Honest.
+            kr_now = {str(k.id): float(k.current) for k in c.okrs.key_results}
             try:
                 if c.ideas:
-                    kr_now = {str(k.id): float(k.current) for k in c.okrs.key_results}
                     before = {i.id: i.status for i in c.ideas}
                     c.settle_ideas(kr_now, tick_no)
                     for i in c.ideas:
-                        if before.get(i.id) != i.status and i.status == _ideas.ASSOCIATED:
+                        if before.get(i.id) == i.status:
+                            continue
+                        if i.status == _ideas.ASSOCIATED:
                             c.record_activity("outcome",
-                                              f"💡 {i.proposer_id}'s {i.lens} idea — {i.target_kr_id} rose +{round(i.associated_delta,3)} after ship (assoc.)")
+                                              f"💡 {i.proposer_id}'s {i.lens} idea — {i.target_kr_id} beat baseline by +{round(i.associated_delta,3)} (assoc., not causal)")
+                        elif i.status == _ideas.FAILED_HYPOTHESIS:
+                            # a falsified hypothesis is preserved as reusable LEARNING —
+                            # no points, no progress, just context for the next attempt.
+                            c.record_learning(creativity.learning_from(i, tick_no))
+                            c.record_activity("learning", f"↩ {i.lens} on {i.target_kr_id} didn't beat baseline — logged")
             except Exception:
                 pass
+            # record the post-metrics KR levels so future deliveries can estimate each
+            # KR's own trend (bounded history — the baseline for honest attribution).
+            self._kr_hist.append((tick_no, kr_now))
+            if len(self._kr_hist) > _ideas.BASELINE_WINDOW + 3:
+                del self._kr_hist[:-(_ideas.BASELINE_WINDOW + 3)]
             # 4-6 each INDEPENDENTLY fail-open so one failure can't abort the rest
             if _due(self._last_review, now, self.review_every_s):
                 self._last_review = now
@@ -360,10 +397,15 @@ class AutonomyLoop:
             # deterministic skeleton to the employee as if their CLI authored it.
             if initiative_plan is not None and not idea_gen_failed:
                 try:
+                    # preregister the experiment contract: beat baseline by ≥3% of the
+                    # KR target (min 1.0) within the window — fixed BEFORE pursuit so
+                    # success can't be redefined after the fact.
+                    _thr = max(1.0, 0.03 * initiative_plan.get("kr_target", 0.0))
                     rec = creativity.new_idea_record(
                         initiative_plan["emp"], initiative_plan["lens"], initiative_plan["kr_id"],
                         objective=initiative_plan["objective"], content=idea_content,
-                        proposer_assumptions=idea_assumptions, created_tick=tick_no)
+                        proposer_assumptions=idea_assumptions, success_threshold=_thr,
+                        evaluation_window=_ideas.VALIDATION_WINDOW_TICKS, created_tick=tick_no)
                     if c.propose_idea(rec) is not None:   # None → ledger full of active ideas, skip
                         c.record_activity("idea", f"{rec.proposer_id} proposed [{rec.lens}] → {initiative_plan['kr_text']}")
                         if rec.reversible and len(c.backlog) < self.max_dispatch:

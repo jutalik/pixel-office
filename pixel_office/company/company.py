@@ -39,6 +39,7 @@ class Company:
         self.workflows: dict = {}        # kr_id -> WorkflowRun (opt-in workflow dispatch)
         self._wf_task_kr: dict = {}      # task.id -> kr_id (attribution for advance_workflow)
         self.ideas: list = []            # IdeaRecord ledger (propose→outcome-associated; ideas.py)
+        self.learnings: list = []        # LearningRecord ledger — what FAILED ideas taught (no points)
         self.activity: list = []         # bounded feed of what the company did (CEO watch)
         # guards company state (memos/backlog/trends/okrs/activity) when the
         # autonomy thread mutates it while the API reads it. RLock: summary() ->
@@ -145,9 +146,11 @@ class Company:
         record.status = _ideas.PURSUED
         self.backlog.append(task)
 
-    def settle_idea_task(self, task, result, kr_current: dict, now_tick: int) -> None:
-        """On a pursued idea's task result: success → DELIVERED + snapshot the target
-        KR (baseline for a later rise); failure → DROPPED (zero points, honest)."""
+    def settle_idea_task(self, task, result, kr_current: dict, now_tick: int,
+                         baseline_rate: float = 0.0, baseline_ok: bool = True) -> None:
+        """On a pursued idea's task result: success → DELIVERED + snapshot the target KR
+        AND its pre-delivery trend (baseline_rate — what the KR would do on its own);
+        failure → DROPPED (zero points, honest)."""
         from . import ideas as _ideas
         tid = getattr(task, "id", None)
         if tid is None:
@@ -159,6 +162,8 @@ class Company:
             rec.status = _ideas.DELIVERED
             rec.delivered_at = int(now_tick)
             rec.kr_snapshot = float(kr_current.get(rec.target_kr_id, 0.0))
+            rec.baseline_rate = float(baseline_rate)
+            rec.baseline_ok = bool(baseline_ok)
         else:
             rec.status = _ideas.DROPPED
             rec.settled_at = int(now_tick)
@@ -168,6 +173,23 @@ class Company:
         n = _ideas.settle(self.ideas, kr_current, int(now_tick))
         _ideas.evict(self.ideas)
         return n
+
+    MAX_LEARNINGS = 60
+    def record_learning(self, learning) -> None:
+        """Preserve what a failed experiment taught (bounded). Never affects points."""
+        self.learnings.append(learning)
+        if len(self.learnings) > self.MAX_LEARNINGS:
+            del self.learnings[:-self.MAX_LEARNINGS]
+
+    def falsified_lenses(self, recent: int = 20) -> set:
+        """Recently-falsified (kr_id, lens) pairs — future proposals steer AWAY from
+        an approach already shown not to beat baseline on that KR (portfolio diversity)."""
+        return {(l.target_kr_id, l.lens) for l in self.learnings[-recent:]}
+
+    def learnings_view(self, limit: int = 6) -> list:
+        with self._lock:
+            return [{"proposer": l.proposer_id, "lens": l.lens, "target": l.target_kr_id,
+                     "falsified": l.falsified} for l in self.learnings[-limit:]]
 
     def ideas_view(self, limit: int = 6) -> dict:
         """Honest idea board for the CEO panel: associated outcomes (correlational,

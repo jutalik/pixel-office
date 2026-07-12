@@ -107,6 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
                    "'publish 10 recipes weekly, reach 1000 signups monthly'")
     n.add_argument("--mode", choices=["Manual", "Copilot", "Autopilot"], default="Copilot",
                    help="how autonomous the AI company runs (default: Copilot)")
+    n.add_argument("--product-url", help="live product KPI base URL (e.g. http://127.0.0.1:8000) — "
+                   "the growth loop polls it so ideas can be validated against REAL metrics")
     n.add_argument("--yes", action="store_true", help="skip confirmation (non-interactive)")
     n.set_defaults(func=_cmd_new)
     dep = sub.add_parser("deploy", help="detect the env and recommend a promotion path")
@@ -146,6 +148,28 @@ def _capability_note() -> str:
             "install Claude / Codex / Grok for `po up` and `po run --live`.  (`po doctor` for details)")
 
 
+def _growth_note(manifest) -> str:
+    """Honest onboarding line about outcome validation: with a product URL the growth
+    loop can move OKRs (and validate ideas) from REAL metrics; without one, `--live`
+    progress and idea outcomes stay unvalidated — we say so rather than implying the
+    loop is active."""
+    url = getattr(manifest, "product_url", "") or ""
+    if not url:
+        return ("no product URL set — the growth loop won't have real metrics, so in `--live` "
+                "OKRs and idea outcomes stay UNVALIDATED. Add one: `po new --product-url http://…` "
+                "(or set PO_PRODUCT_URL), exposing /api/telemetry|funnel|quality|growth.")
+    try:                                   # a quick, bounded reachability probe (never blocks)
+        from .company import metrics
+        got = metrics.fetch_metrics(url, timeout=1.5)
+    except Exception:
+        got = {}
+    if got:                                # only claim validation when KPIs are actually readable
+        return (f"growth loop → {url}  ({len(got)} numeric KPI(s) visible). "
+                "Idea outcomes will be validated against real metrics.")
+    return (f"growth loop → {url}  (no numeric KPIs readable yet — is it running, and does it "
+            "expose /api/telemetry|funnel|quality|growth?). Outcomes WON'T validate until it does.")
+
+
 def _cmd_new(args) -> int:
     from .scaffold import builder
     from .scaffold.init_chat import answers_to_manifest, run_interactive
@@ -157,7 +181,7 @@ def _cmd_new(args) -> int:
             "what": args.what, "name": args.name or args.what, "goal": args.goal or "",
             "niche": args.niche or "", "stack": args.stack, "benchmarks": args.benchmarks or "",
             "roles": args.roles or "", "key_results": getattr(args, "kr", None) or "",
-            "mode": getattr(args, "mode", None),
+            "mode": getattr(args, "mode", None), "product_url": getattr(args, "product_url", None) or "",
         })
         print(manifest.charter())
         if not args.yes:
@@ -182,6 +206,7 @@ def _cmd_new(args) -> int:
     note = _capability_note()               # onboarding: what can this machine actually run?
     if note:
         print("\n" + note)
+    print(_growth_note(manifest))           # onboarding: can idea outcomes be validated?
     return 0
 
 
@@ -279,6 +304,10 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
             print("live: WARNING — no AI CLI detected on PATH. Employees will be Blocked when "
                   "assigned. Install Claude/Codex/Grok (`po doctor`), or use `po run --demo`.",
                   file=sys.stderr)
+        if not getattr(company, "product_url", ""):
+            print("live: no product URL — OKRs and idea outcomes stay UNVALIDATED (no real "
+                  "metrics). Set PO_PRODUCT_URL or `product_url` in pixel-office.json.",
+                  file=sys.stderr)
     elif demo:
         # DEMO: the deterministic executor SIMULATES work (no real LLM, 0 tokens)
         # so you can see the office move. This is explicitly not real work.
@@ -315,9 +344,13 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
                     loop.tick(_time.monotonic())
                     if demo:                     # simulate KR metrics landing so the
                         with company._lock:      # goal visibly grows (labelled 'simulated')
-                            for kr in company.okrs.key_results:
+                            t = loop._ticks       # DETERMINISTIC variation (no RNG) so growth
+                            for idx, kr in enumerate(company.okrs.key_results):
                                 if kr.current < kr.target:
-                                    step = max(1.0, kr.target * 0.05)
+                                    # is bumpy, not constant — some ideas land above the
+                                    # baseline trend (assoc.), some below (failed): honest spread.
+                                    mult = 0.4 + 1.2 * ((t * 7 + idx * 5) % 5) / 4.0
+                                    step = max(1.0, kr.target * 0.05 * mult)
                                     company.okrs.update(kr.id, min(kr.target, kr.current + step))
                 except Exception:
                     pass   # the loop must never crash the server

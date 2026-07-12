@@ -11,6 +11,15 @@ def _delivered(proposer, kr, snapshot, delivered_at):
     return r
 
 
+def test_learning_from_a_failed_idea_captures_the_falsified_assumption():
+    from pixel_office.company.creativity import learning_from, new_idea_record
+    idea = new_idea_record("alice", "acquisition", "kr1", proposer_assumptions=("paid ads convert",))
+    idea.status = ideas.FAILED_HYPOTHESIS
+    lr = learning_from(idea, tick=5)
+    assert lr.lens == "acquisition" and lr.target_kr_id == "kr1"
+    assert lr.falsified == "paid ads convert"          # the proposer's own words, not invented
+
+
 def test_split_assumption_keeps_only_what_the_cli_returned():
     from pixel_office.company.creativity import split_assumption
     c, a = split_assumption("Add a weekly digest email. Assumption: users check email weekly")
@@ -78,6 +87,63 @@ def test_window_expiry_is_inconclusive_zero_points():
     r = _delivered("alice", "kr1", 10.0, delivered_at=0)
     ideas.settle([r], {"kr1": 10.0}, now_tick=ideas.VALIDATION_WINDOW_TICKS)   # no rise
     assert r.status == ideas.INCONCLUSIVE and r.outcome_points == 0.0
+
+
+def test_baseline_adjusted_credits_only_the_excess_above_prior_trend():
+    # the KR was already climbing 2/tick before delivery; only the EXCESS counts.
+    r = _delivered("alice", "kr1", 10.0, delivered_at=1)
+    r.baseline_rate = 2.0
+    # after 3 ticks the KR "would have" reached 16 anyway; it reached 20 → excess 4
+    ideas.settle([r], {"kr1": 20.0}, now_tick=4)
+    assert r.status == ideas.ASSOCIATED and r.outcome_points == 4.0   # 20 - (10 + 2*3)
+    assert r.raw_delta == 10.0                                        # raw rise shown for transparency
+
+
+def test_secular_growth_alone_does_not_earn_credit():
+    # the KR only grew at its baseline rate → no excess → preregistered miss = failed
+    r = _delivered("alice", "kr1", 10.0, delivered_at=0)
+    r.baseline_rate = 2.0
+    r.success_threshold = 0.5                     # preregistered → a miss is a falsification
+    W = ideas.VALIDATION_WINDOW_TICKS            # r.evaluation_window defaults to this
+    ideas.settle([r], {"kr1": 10.0 + 2.0 * W}, now_tick=W)  # exactly the baseline trajectory
+    assert r.status == ideas.FAILED_HYPOTHESIS and r.outcome_points == 0.0
+
+
+def test_below_threshold_excess_is_failed_hypothesis():
+    r = _delivered("alice", "kr1", 10.0, delivered_at=0)
+    r.baseline_rate = 0.0
+    r.success_threshold = 5.0                     # need +5 above baseline
+    ideas.settle([r], {"kr1": 13.0}, now_tick=ideas.VALIDATION_WINDOW_TICKS)  # only +3 → misses bar
+    assert r.status == ideas.FAILED_HYPOTHESIS and r.outcome_points == 0.0
+
+
+def test_falling_kr_earns_nothing_even_if_it_beats_a_negative_baseline():
+    # a KR that actually FELL must never be credited, even if it fell less than a
+    # declining baseline predicted (beating a negative baseline is not a real win).
+    r = _delivered("alice", "kr1", 100.0, delivered_at=1)
+    r.baseline_rate = -10.0
+    ideas.settle([r], {"kr1": 95.0}, now_tick=2)   # raw delta -5, but 95 > (100-10)=90
+    assert r.status == ideas.DELIVERED and r.outcome_points == 0.0   # cur < snapshot → no credit
+
+
+def test_no_established_baseline_is_not_creditable():
+    # without a pre-delivery trend we can't say an idea beat the baseline → no credit
+    # (0 is not conservative for a growing KR — it would credit secular growth).
+    r = _delivered("alice", "kr1", 10.0, delivered_at=1)
+    r.baseline_ok = False
+    ideas.settle([r], {"kr1": 500.0}, now_tick=3)   # huge rise, but no baseline established
+    assert r.status != ideas.ASSOCIATED and r.outcome_points == 0.0
+
+
+def test_contention_is_durable_a_lone_survivor_gets_no_exclusive_credit():
+    # two ideas overlap on kr1; even after one settles ambiguous and the other is later
+    # alone, the survivor must NOT get exclusive points — the KR was confounded.
+    a = _delivered("alice", "kr1", 10.0, delivered_at=1)
+    b = _delivered("bob", "kr1", 20.0, delivered_at=1)   # higher snapshot, not yet risen
+    ideas.settle([a, b], {"kr1": 15.0}, now_tick=2)      # a beats, b doesn't → a AMBIGUOUS
+    assert a.status == ideas.AMBIGUOUS and b.status == ideas.DELIVERED and b.contended
+    ideas.settle([a, b], {"kr1": 30.0}, now_tick=3)      # now b is alone AND rises...
+    assert b.status == ideas.AMBIGUOUS and b.outcome_points == 0.0   # ...but stays non-exclusive
 
 
 def test_reputation_counts_only_exclusive_associations():

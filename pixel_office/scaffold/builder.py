@@ -37,6 +37,7 @@ def _manifest_json(m: Manifest) -> str:
         "key_results": [{"text": k.text, "target": k.target, "cadence": k.cadence,
                          "metric": k.metric} for k in m.key_results],
         "mode": m.mode.to_dict(),
+        "product_url": m.product_url,
     }, indent=2) + "\n"
 
 

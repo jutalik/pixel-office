@@ -345,22 +345,32 @@ loop (`ideas.py`, `creativity.IdeaRecord`) recognizes ideas ONLY by real outcome
 and is deliberately conservative about what it claims.
 
 **Lifecycle** (driven by the autonomy tick):
-1. **propose** — the initiative cadence picks a creative employee, a divergent lens,
-   and an explicit **target KR** it aims to move (never guessed). The idea's *content*
-   is a deterministic skeleton in `--demo`/tests (0 tokens) or, in `--live`, written by
-   the employee's **real CLI** (`idea_gen_fn`, called OUTSIDE the company lock so it
-   can't freeze the dashboard).
+1. **propose** — the initiative cadence picks a creative employee, a divergent lens
+   (steering *away* from a lens already falsified on that KR), and an explicit **target
+   KR**. It **preregisters an experiment contract**: a `success_threshold` (beat the
+   baseline by ≥3% of the KR target) and an `evaluation_window`, fixed *before* pursuit
+   so success can't be redefined afterward. The idea's *content* is a deterministic
+   skeleton in `--demo`/tests (0 tokens) or, in `--live`, written by the employee's
+   **real CLI** (`idea_gen_fn`, called OUTSIDE the company lock; if it produces nothing
+   the proposal is skipped — a skeleton is never attributed to the employee).
 2. **pursue** — a reversible idea becomes ONE bounded exploration task (linked by id).
-3. **deliver / drop** — task succeeds → `DELIVERED` + the target KR is snapshotted at
-   the *end of the delivery tick*; task fails → `DROPPED` (zero points).
-4. **settle** — on a later tick, if the targeted KR rose *strictly after* delivery, the
-   idea becomes `ASSOCIATED`; the window elapses to `INCONCLUSIVE` (zero points) if it
-   doesn't.
+3. **deliver / drop** — task succeeds → `DELIVERED`, snapshotting the target KR *and its
+   pre-delivery trend* (`baseline_rate`) at the end of the delivery tick; task fails →
+   `DROPPED` (zero points).
+4. **settle** — on a later tick the outcome is measured **baseline-adjusted**: credit
+   only the *excess* above where the KR would have drifted on its own. If that excess
+   clears the preregistered threshold → `ASSOCIATED`. If the window elapses without
+   clearing it → `FAILED_HYPOTHESIS` (a preregistered miss) or `INCONCLUSIVE`.
+5. **learn** — a `FAILED_HYPOTHESIS` becomes a `LearningRecord` (the falsified
+   assumption + the lens/KR scope), kept **entirely separate from points and progress**
+   and used only as context for future proposals. Failure is preserved, not hidden.
 
 **Honesty rules (non-negotiable):**
 - It is **correlation, not causation.** Fields say `associated_delta` / `outcome_points`
-  (never "impact"); the UI says *"KR rose after ship — association only, not proof the
-  idea caused it."*
+  (never "impact"); the UI says *"beat baseline by +delta — association only, not proof
+  the idea caused it."*
+- **Secular growth earns nothing.** Credit is baseline-adjusted — an idea that only rode
+  a KR's pre-existing trend clears no threshold and ends `FAILED_HYPOTHESIS`.
 - **Individual credit only on EXCLUSIVE attribution** — if two ideas are in flight
   against the same KR, its rise can't be pinned on either, so neither earns points
   (team-level recognition only). Splitting a delta would be an invented rule.

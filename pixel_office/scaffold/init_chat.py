@@ -121,6 +121,7 @@ def answers_to_manifest(answers: Dict[str, str]) -> Manifest:
         "roles": _parse_roles(answers.get("roles", "")) or _default_team_roles(stack),
         "key_results": _parse_krs(answers.get("key_results", "")),
         "mode": (answers.get("mode") or "").strip() or "Copilot",
+        "product_url": (answers.get("product_url") or "").strip(),
     }
     return Manifest.from_dict(d)
 

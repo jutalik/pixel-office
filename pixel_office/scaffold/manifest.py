@@ -94,6 +94,7 @@ class Manifest:
     roles: List[Role] = field(default_factory=list)
     key_results: List[KeyResultSpec] = field(default_factory=list)
     mode: OperatingMode = field(default_factory=OperatingMode)
+    product_url: str = ""    # live KPI surface the growth loop polls (validates idea outcomes)
 
     @property
     def slug(self) -> str:
@@ -137,6 +138,7 @@ class Manifest:
             roles=roles or [Role("Founder", 1)],
             key_results=_clean_krs(d.get("key_results")),
             mode=OperatingMode.from_dict(d.get("mode")) if d.get("mode") else OperatingMode(),
+            product_url=_clean_str(d.get("product_url"), 300),
         )
 
     def charter(self) -> str:

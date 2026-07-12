@@ -28,17 +28,19 @@ from typing import Dict, List
 
 MAX_IDEAS = 200                 # bounded ledger (oldest terminal records evicted first)
 VALIDATION_WINDOW_TICKS = 6     # ticks after delivery to observe an associated rise
+BASELINE_WINDOW = 4             # ticks of pre-delivery history used to estimate the KR's own trend
 
 # lifecycle statuses (terminal: ASSOCIATED / AMBIGUOUS / INCONCLUSIVE / DROPPED)
 PROPOSED = "proposed"
 PURSUED = "pursued"
-DELIVERED = "delivered"         # task succeeded; watching the target KR for a rise
-ASSOCIATED = "associated"       # target KR rose after delivery, EXCLUSIVE attribution → points
-AMBIGUOUS = "ambiguous"         # KR rose but ≥2 ideas targeted it → team recognition, no points
-INCONCLUSIVE = "inconclusive"   # window expired with no rise → zero points
+DELIVERED = "delivered"         # task succeeded; watching the target KR vs its baseline
+ASSOCIATED = "associated"       # KR beat baseline by ≥ threshold, EXCLUSIVE attribution → points
+AMBIGUOUS = "ambiguous"         # threshold beaten but ≥2 ideas targeted it → team recognition, no points
+FAILED_HYPOTHESIS = "failed"    # preregistered threshold NOT met in the window → zero points
+INCONCLUSIVE = "inconclusive"   # window expired, no threshold set → zero points
 DROPPED = "dropped"             # the pursued task failed → zero points
 
-_TERMINAL = (ASSOCIATED, AMBIGUOUS, INCONCLUSIVE, DROPPED)
+_TERMINAL = (ASSOCIATED, AMBIGUOUS, FAILED_HYPOTHESIS, INCONCLUSIVE, DROPPED)
 
 
 def is_terminal(status: str) -> bool:
@@ -71,30 +73,51 @@ def settle(ideas: List, kr_current: Dict[str, float], now_tick: int,
     settled = 0
     for kr_id, group in by_kr.items():
         cur = kr_current.get(kr_id)
-        risen = [i for i in group
-                 if cur is not None and now_tick > i.delivered_at and cur > i.kr_snapshot]
-        if not risen:
+        if cur is None:
             continue
-        # EXCLUSIVE only when a SINGLE delivered idea targets this KR at all — if two
-        # ideas are both in-flight against the same KR, its rise can't be attributed to
-        # either, so neither earns individual points (team recognition only).
-        if len(group) == 1:
-            i = risen[0]
+        # DURABLE contention: the moment ≥2 ideas are in flight against one KR, mark ALL
+        # of them permanently non-exclusive — so a later, now-alone survivor can't claim
+        # exclusive credit for a KR that was confounded while it was running.
+        if len(group) >= 2:
+            for i in group:
+                i.contended = True
+        # BASELINE-ADJUSTED: the KR would have drifted `baseline_rate` per tick anyway,
+        # so credit only the EXCESS above that expected drift — not secular growth. And
+        # never on a KR that actually FELL, or one with no established baseline.
+        beat = []
+        for i in group:
+            if now_tick <= i.delivered_at or not i.baseline_ok:
+                continue
+            elapsed = now_tick - i.delivered_at
+            expected = i.kr_snapshot + i.baseline_rate * elapsed
+            i.raw_delta = round(cur - i.kr_snapshot, 4)
+            adjusted = cur - expected
+            if adjusted >= i.success_threshold and adjusted > 0 and cur > i.kr_snapshot:
+                i.associated_delta = round(adjusted, 4)   # provisional; finalized below
+                beat.append(i)
+        if not beat:
+            continue
+        # EXCLUSIVE only when this is the SOLE delivered idea for the KR AND it was never
+        # contended over its lifetime — otherwise the excess can't be attributed to one
+        # idea, so it's team recognition (AMBIGUOUS), no individual points.
+        exclusive = len(group) == 1 and not beat[0].contended
+        if exclusive:
+            i = beat[0]
             i.status = ASSOCIATED
-            i.associated_delta = round(cur - i.kr_snapshot, 4)
-            i.outcome_points = i.associated_delta   # earned ONLY here (exclusive attribution)
+            i.outcome_points = i.associated_delta       # earned ONLY here (exclusive attribution)
             i.settled_at = now_tick
             settled += 1
         else:
-            for i in risen:
+            for i in beat:
                 i.status = AMBIGUOUS
-                i.associated_delta = round(cur - i.kr_snapshot, 4)
                 i.outcome_points = 0.0
                 i.settled_at = now_tick
                 settled += 1
     for i in delivered:
-        if i.status == DELIVERED and (now_tick - i.delivered_at) >= window:
-            i.status = INCONCLUSIVE                  # window elapsed, no associated rise
+        if i.status == DELIVERED and (now_tick - i.delivered_at) >= i.evaluation_window:
+            # window elapsed without beating baseline+threshold. A PREREGISTERED
+            # threshold makes this a clear falsification; otherwise just inconclusive.
+            i.status = FAILED_HYPOTHESIS if i.success_threshold > 0 else INCONCLUSIVE
             i.outcome_points = 0.0
             i.settled_at = now_tick
             settled += 1

@@ -14,14 +14,15 @@ def test_idea_becomes_outcome_associated_only_after_target_kr_rises_post_deliver
     loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9)   # propose once (first tick)
     loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
     loop._last_radar = loop._last_hr = 1e18
+    loop._kr_hist = [(-1, {"kr1": 0.0})]   # a prior FLAT reading → a baseline can be established
     loop.tick(0)                      # propose + pursue (idea task queued)
-    loop.tick(1)                      # idea task delivered; snapshot the target KR
+    loop.tick(1)                      # idea task delivered; snapshot the target KR + baseline
     idea = c.ideas[0]
     assert idea.status == ideas.DELIVERED and idea.kr_snapshot == 0.0
     assert idea.outcome_points == 0.0             # delivering alone earns NOTHING
-    c.okrs.key_results[0].current = 7             # the targeted KR really rose AFTER delivery
+    c.okrs.key_results[0].current = 40            # rose well ABOVE baseline + the preregistered bar
     loop.tick(2)                      # settle → outcome-associated (correlational)
-    assert idea.status == ideas.ASSOCIATED and idea.outcome_points == 7.0
+    assert idea.status == ideas.ASSOCIATED and idea.outcome_points == 40.0
     view = c.ideas_view()
     assert view["reputation"] and view["reputation"][0]["proposer"] == idea.proposer_id
     assert "outcome" in [a["kind"] for a in c.activity_view(50)]
@@ -53,6 +54,25 @@ def test_live_idea_gen_content_and_assumption_are_recorded():
     loop.tick(0)
     assert c.ideas and c.ideas[0].content == "Launch a referral link"
     assert c.ideas[0].proposer_assumptions == ("users share",)   # only the CLI's own words
+
+
+def test_failed_hypothesis_is_preserved_as_learning_not_points():
+    # an idea delivered but whose KR never beats baseline → FAILED_HYPOTHESIS → a
+    # LearningRecord (falsified assumption), never points or progress.
+    c = build_company({"what": "x", "goal": "grow",
+                       "roles": [{"title": "Growth Marketer", "count": 1}]})
+    c.okrs.add_kr(KeyResult("kr1", "reach 1000 signups", target=1000))
+    c.runtime.executor = lambda emp, task: TaskResult(task.id, emp.id, True, "ok")   # idea delivers
+    loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9)   # propose once
+    loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
+    loop._last_radar = loop._last_hr = 1e18
+    for tk in range(9):
+        loop.tick(tk)                         # KR never rises → window elapses → failed
+    idea = c.ideas[0]
+    assert idea.status == ideas.FAILED_HYPOTHESIS and idea.outcome_points == 0.0
+    assert c.learnings and c.learnings[0].target_kr_id == "kr1"      # the miss became a lesson
+    assert (("kr1", idea.lens) in c.falsified_lenses())             # future proposals steer away
+    assert c.ideas_view()["reputation"] == []                       # zero standing from a failure
 
 
 def test_idea_whose_task_fails_is_dropped_with_zero_points():

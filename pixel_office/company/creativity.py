@@ -55,33 +55,68 @@ class IdeaRecord:
     cost: str = "small"
     system_assumptions: Tuple[str, ...] = ()
     proposer_assumptions: Tuple[str, ...] = ()
+    # experiment contract — PREREGISTERED at propose time, immutable, so success can
+    # never be redefined after the fact (a real hypothesis, not a post-hoc story).
+    success_threshold: float = 0.0   # min BASELINE-ADJUSTED delta that counts as a win
+    evaluation_window: int = 6       # ticks after delivery to observe the outcome
     status: str = "proposed"
     task_id: Optional[int] = None
     created_tick: int = 0
     delivered_at: int = -1       # tick the pursued task succeeded (snapshot taken then)
-    kr_snapshot: float = 0.0     # target KR value AT delivery (baseline for a later rise)
-    associated_delta: float = 0.0
-    outcome_points: float = 0.0  # earned ONLY on exclusive post-delivery association
+    kr_snapshot: float = 0.0     # target KR value AT delivery (post-delivery-tick baseline)
+    baseline_rate: float = 0.0   # KR's per-tick trend BEFORE delivery (what it would do anyway)
+    baseline_ok: bool = True     # False when no pre-delivery trend could be established → NOT creditable
+    contended: bool = False      # this idea ever shared its target KR with another live idea
+    raw_delta: float = 0.0       # unadjusted rise since delivery (shown for transparency)
+    associated_delta: float = 0.0  # BASELINE-ADJUSTED excess (the part above the prior trend)
+    outcome_points: float = 0.0  # earned ONLY on exclusive, threshold-beating association
     settled_at: int = -1
     id: int = field(default_factory=lambda: next(_idea_ids))
+
+
+@dataclass
+class LearningRecord:
+    """What a FAILED experiment taught — kept ENTIRELY separate from reputation and KR
+    progress. A falsified hypothesis with a reusable scope (which lens on which KR did
+    NOT beat baseline), used only as context for future proposals. Never points."""
+    proposer_id: str
+    lens: str
+    target_kr_id: str
+    falsified: str        # the assumption that did not hold
+    idea_id: int
+    tick: int
+
+
+def learning_from(idea, tick: int) -> "LearningRecord":
+    """Distil a FAILED idea into a reusable lesson: the (proposer, lens, KR) scope and
+    the specific assumption its miss falsified. Prefers the proposer's own stated
+    assumption, else the system floor — never invents one."""
+    assumption = (idea.proposer_assumptions or idea.system_assumptions or ("(no stated assumption)",))[0]
+    return LearningRecord(proposer_id=idea.proposer_id, lens=idea.lens,
+                          target_kr_id=idea.target_kr_id, falsified=str(assumption)[:160],
+                          idea_id=idea.id, tick=int(tick))
 
 
 def new_idea_record(proposer_id: str, lens: str, target_kr_id: str, *,
                     objective: str = "", content: str = "",
                     proposer_assumptions: Tuple[str, ...] = (),
                     reversible: bool = True, cost: str = "small",
+                    success_threshold: float = 0.0, evaluation_window: int = 6,
                     created_tick: int = 0) -> IdeaRecord:
-    """Build a ledger record. `content` may be a live LLM's idea text; when empty a
-    deterministic skeleton is used (0-token demo/tests). The system floor assumption
-    is ALWAYS attached (truthful epistemic status, not a fabricated claim)."""
+    """Build a ledger record with its PREREGISTERED experiment contract. `content` may
+    be a live LLM's idea text; when empty a deterministic skeleton is used (0-token
+    demo/tests). The system floor assumption is ALWAYS attached (truthful epistemic
+    status, not a fabricated claim)."""
     obj = str(objective or "the goal").strip() or "the goal"
     body = " ".join(str(content or "").split())[:280] or \
         f"[{lens}] a small reversible experiment toward {obj}"
-    floor = (f"unverified that this {lens} idea moves {target_kr_id or obj}",)
+    floor = (f"unverified that this {lens} idea moves {target_kr_id or obj} above its baseline",)
     keep = tuple(" ".join(str(a).split())[:160] for a in (proposer_assumptions or ()) if str(a).strip())[:3]
     return IdeaRecord(proposer_id=str(proposer_id), lens=str(lens), content=body,
                       target_kr_id=str(target_kr_id or ""), reversible=bool(reversible),
                       cost=str(cost), system_assumptions=floor, proposer_assumptions=keep,
+                      success_threshold=max(0.0, float(success_threshold)),
+                      evaluation_window=max(1, int(evaluation_window)),
                       created_tick=int(created_tick))
 
 
