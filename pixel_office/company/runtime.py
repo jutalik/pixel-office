@@ -103,8 +103,13 @@ class OrgRuntime:
             return TaskResult(task.id, emp.id, ok=False, summary="executor result mismatched the task")
         self._emit(emp.id, "Done" if result.ok else "Blocked")
         # learn from the outcome (evidence-first competency; deterministic)
-        self.memory_of(emp.id).record("task_done" if result.ok else "task_blocked",
-                                      task.task_class, result.ok, ref=str(task.id))
+        mem = self.memory_of(emp.id)
+        mem.record("task_done" if result.ok else "task_blocked",
+                   task.task_class, result.ok, ref=str(task.id))
+        # behavioral trait: which skill this person keeps doing (workflow steps only,
+        # task_class = "kr:skill") — a separate observation, never a competency sample
+        if ":" in task.task_class:
+            mem.observe("focus", task.task_class.split(":", 1)[1])
         return result
 
     def assign_all(self, tasks: List[Task]) -> List[TaskResult]:

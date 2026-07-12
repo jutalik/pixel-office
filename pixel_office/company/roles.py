@@ -74,7 +74,7 @@ ROLES: Dict[str, RoleSpec] = {r.id: r for r in (
     _r("growth", "Growth Marketer", "growth", "standard",
        "You grow the north-star metric with cheap, measurable experiments — hypothesis, "
        "instrument, measure, decide.",
-       ("growth-experiment", "acquisition", "retention-analysis"), ("growth-experiment",)),
+       ("growth-experiment", "acquisition", "retention-analysis"), ("growth-experiment",), creative=True),
     _r("data", "Data Analyst", "data", "standard",
        "You turn data into decisions. Query, quantify, and report what actually moved "
        "the metric — no vanity numbers.",
@@ -92,6 +92,18 @@ DEFAULT_TEAMS: Dict[str, Tuple[str, ...]] = {
 
 def get(role_id: str) -> Optional[RoleSpec]:
     return ROLES.get(role_id)
+
+
+def is_creative(employee) -> bool:
+    """Whether an employee's library role is a creative one — the single source of
+    truth (don't duplicate the flag onto Employee)."""
+    spec = ROLES.get(getattr(employee, "role", "") or "")
+    return bool(spec and spec.creative)
+
+
+def family_of(role_id: str) -> str:
+    spec = ROLES.get(role_id or "")
+    return spec.family if spec else ""
 
 
 def default_team_for(stack: str) -> Tuple[str, ...]:

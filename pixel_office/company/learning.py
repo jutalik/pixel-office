@@ -36,6 +36,15 @@ class Lesson:
     confidence: float = 0.5
 
 
+@dataclass(frozen=True)
+class Observation:
+    """A behavioral observation, kept SEPARATE from competency Evidence so it never
+    pollutes the score. Individuality is derived from these, never declared."""
+    kind: str            # e.g. "focus" (which skill this person keeps doing)
+    value: str
+    id: int = field(default_factory=lambda: next(_ev_ids))
+
+
 @dataclass
 class _ClassStat:
     n: int = 0
@@ -57,6 +66,7 @@ class EmployeeMemory:
         self.employee_id = employee_id
         self.evidence: List[Evidence] = []
         self.lessons: List[Lesson] = []
+        self.observations: List[Observation] = []   # behavioral, not scored
         self._stats: Dict[str, _ClassStat] = {}
 
     # ---- record outcomes (deterministic) ------------------------------------
@@ -96,3 +106,23 @@ class EmployeeMemory:
     def samples(self, task_class: str) -> int:
         st = self._stats.get(task_class)
         return st.n if st else 0
+
+    # ---- behavioral traits (evidence-based individuality, never declared) --------
+
+    def observe(self, kind: str, value: str) -> Observation:
+        o = Observation(kind=str(kind), value=str(value))
+        self.observations.append(o)
+        return o
+
+    def top_trait(self, kind: str, *, min_samples: int = 2) -> Optional[str]:
+        """The most-frequently observed value for a kind (e.g. which skill this
+        person keeps doing → their 'focus'), or None below the sample floor —
+        individuality that CREATES itself from the work, never a set label."""
+        counts: Dict[str, int] = {}
+        for o in self.observations:
+            if o.kind == kind and o.value:
+                counts[o.value] = counts.get(o.value, 0) + 1
+        if not counts:
+            return None
+        value, n = max(counts.items(), key=lambda kv: (kv[1], kv[0]))
+        return value if n >= min_samples else None

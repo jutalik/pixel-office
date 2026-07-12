@@ -298,6 +298,35 @@ what each one is good at, and how to ship work — not just a list of title stri
   selection sharpens for library roles; title-only (hand-built) employees are
   unaffected.
 
+## 12. Individuality, creativity & initiative
+
+Employees should feel like *people*, but honestly — personality that emerges from
+the work, never a set label (cf. Generative Agents' observe→reflect→retrieve).
+
+- **Behavioral traits** (`learning.py`): a separate `Observation` stream, kept apart
+  from competency `Evidence` so it never pollutes the score. `top_trait(kind)`
+  returns the most-frequent value or None below the sample floor. Today each
+  employee accrues a **focus** (the skill they keep doing) that surfaces in the
+  roster as `style` — self-created, never declared.
+- **Proficiency** is evidence-based per skill (`skills.aggregate_proficiency`): a
+  real % once proven, "learning" below the floor — shown in the CEO panel.
+- **Creativity** (`creativity.py`): creative roles (designer / writer / growth,
+  resolved via `roles.is_creative` — the single source, not a duplicated flag) get
+  divergent **lenses**, not a "right style". `deterministic_ideas` scaffolds one
+  option per lens (zero-token, testable); an optional LLM enriches wording later.
+  An idea is a PROPOSAL — its unproven claims are `assumptions`, and `validate_ideas`
+  drops any bare fact-claim or duplicate lens.
+- **Initiative** (`autonomy.py`): on a bounded cadence a creative employee proposes
+  ONE idea toward the goal; a reversible/local idea auto-becomes a single
+  exploration task, anything riskier stays a proposal. Agency = observe → hypothesis
+  → bounded, gated proposal → policy-based execution — never "do whatever." It
+  spends the same dispatch budget, so cost scales with decisions, not wall-clock.
+
+Roadmap (designed with Codex, not yet built): richer trait/relationship
+observations, mentorship-as-task and evidence-gated `SkillAttainment` (learning a
+new skill never silently inflates routing), and a `PromptContext` that feeds
+persona + traits + relationships into `build_prompt`.
+
 Surfaced honestly in `/api/company` (`roster[].role/skills/workflows/tier`,
 `workflows[]` with the live step) and painted in the office CEO panel + avatar role
 badges (KO/EN).

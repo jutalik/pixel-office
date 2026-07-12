@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-from . import skills, workflows
+from . import creativity, roles as _roles, skills, workflows
 from .company import Company
 from .memo import DecisionMemo
 from .routing import best_owner, best_owner_for_step
@@ -30,6 +30,7 @@ class TickReport:
     scanned: bool = False
     hr_recs: list = field(default_factory=list)
     ceo_pending: int = 0
+    initiatives: int = 0
 
 
 # planner(company, kr) -> a Task advancing that Key Result
@@ -110,16 +111,19 @@ def _stub_synthesize(positions, packet) -> "object":
 class AutonomyLoop:
     def __init__(self, company: Company, *, planner_fn: Optional[PlannerFn] = None,
                  max_dispatch: int = 3, review_every_s: float = 3600,
-                 radar_every_s: float = 6 * 3600, hr_every_s: float = 12 * 3600):
+                 radar_every_s: float = 6 * 3600, hr_every_s: float = 12 * 3600,
+                 initiative_every_s: float = 6 * 3600):
         self.company = company
         self.planner_fn = planner_fn or default_planner
         self.max_dispatch = max_dispatch
         self.review_every_s = review_every_s
         self.radar_every_s = radar_every_s
         self.hr_every_s = hr_every_s
+        self.initiative_every_s = initiative_every_s
         self._last_review: Optional[float] = None
         self._last_radar: Optional[float] = None
         self._last_hr: Optional[float] = None
+        self._last_initiative: Optional[float] = None
 
     def tick(self, now: float) -> TickReport:
         c = self.company
@@ -197,6 +201,26 @@ class AutonomyLoop:
                     r.hr_recs = c.hr_review()
                     if r.hr_recs:
                         c.record_activity("hr", f"HR review — {len(r.hr_recs)} recommendation(s)")
+                except Exception:
+                    pass
+            # 6. individual initiative (BOUNDED): a creative employee proposes one idea
+            #    toward the goal via divergent lenses. Deterministic + honest — an idea
+            #    is a PROPOSAL (its unproven claims are assumptions); reversible/local
+            #    ideas auto-become one small exploration task, nothing riskier.
+            if _due(self._last_initiative, now, self.initiative_every_s):
+                self._last_initiative = now
+                try:
+                    creatives = [e for e in c.team.all() if _roles.is_creative(e)]
+                    if creatives:
+                        emp = creatives[int(now) % len(creatives)]   # rotate proposers deterministically
+                        ideas = creativity.validate_ideas(creativity.deterministic_ideas(
+                            c.okrs.objective, _roles.family_of(emp.role), option_count=3))
+                        if ideas:
+                            idea = ideas[0]
+                            c.record_activity("idea", f"{emp.id} proposed {idea.lens}: {idea.title}")
+                            if idea.reversible and len(c.backlog) < self.max_dispatch:
+                                c.add_task(f"explore: {idea.title}", emp.id, task_class="initiative")
+                            r.initiatives = 1
                 except Exception:
                     pass
             r.ceo_pending = len(c.memos.ceo_queue())

@@ -153,10 +153,13 @@ class Company:
                 # evidence-based proficiency per skill: a real [0,1] once proven, or
                 # None ("learning") below the sample floor — never an invented score.
                 prof = {s: _skills.aggregate_proficiency(mem, s) for s in e.skills}
+                from . import roles as _roles
                 out.append({"id": e.id, "title": e.title, "dept": department_of(e),
                             "role": e.role, "skills": list(e.skills),
                             "workflows": list(e.workflows), "tier": e.tier,
-                            "proficiency": prof})
+                            "proficiency": prof,
+                            "creative": _roles.is_creative(e),      # role-derived, single source
+                            "style": mem.top_trait("focus")})       # evidence-based focus, or None
             return out
 
     def hr_review(self) -> list:

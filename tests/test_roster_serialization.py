@@ -22,6 +22,21 @@ def test_plain_employee_roster_row_is_empty_but_present():
     assert r["role"] == "" and r["skills"] == [] and r["workflows"] == []
 
 
+def test_roster_exposes_creative_flag_and_evidence_based_style():
+    c = build_company({"what": "x", "roles": [
+        {"title": "Growth Marketer", "count": 1}, {"title": "Backend Engineer", "count": 1}]})
+    by_title = {r["title"]: r for r in c.roster()}
+    assert by_title["Growth Marketer"]["creative"] is True
+    assert by_title["Backend Engineer"]["creative"] is False
+    # style stays None until a focus emerges from >=2 observations (never declared)
+    be = c.team.all()[1]
+    assert c.roster()[1]["style"] is None
+    mem = c.runtime.memory_of(be.id)
+    mem.observe("focus", "backend-impl")
+    mem.observe("focus", "backend-impl")
+    assert c.roster()[1]["style"] == "backend-impl"
+
+
 def test_roster_proficiency_is_evidence_based():
     from pixel_office.company import skills
     c = build_company({"what": "x", "roles": [{"title": "backend engineer", "count": 1}]})
