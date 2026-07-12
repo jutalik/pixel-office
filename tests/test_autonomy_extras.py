@@ -69,6 +69,22 @@ def test_done_workflow_kr_stops_generating_meetings_and_memos():
     assert c.meeting_view() is None
 
 
+def test_milestone_celebrated_once_only_on_real_completion():
+    c = _team_company(kr_text="ship 5 signups", metric="signups")   # kr1 target=5
+    loop = AutonomyLoop(c, meeting_every_s=1e18, review_every_s=1e18,
+                        metrics_every_s=1e18, initiative_every_s=1e18)
+    loop._last_radar = loop._last_hr = 1e18
+    # not yet complete → no celebration
+    c.okrs.key_results[0].current = 3
+    loop.tick(0)
+    assert "milestone" not in [a["kind"] for a in c.activity_view(50)]
+    # now it genuinely reaches 100% → celebrated exactly once
+    c.okrs.key_results[0].current = 5
+    loop.tick(1); loop.tick(2)
+    miles = [a for a in c.activity_view(50) if a["kind"] == "milestone"]
+    assert len(miles) == 1 and "signups" in miles[0]["text"]
+
+
 def test_blocked_workflow_is_abandoned_after_retry_budget():
     from pixel_office.company.workflows import MAX_RETRIES
     c = build_company({"what": "x", "stack": "api-service", "roles": [

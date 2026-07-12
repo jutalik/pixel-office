@@ -435,10 +435,15 @@ function renderPanel(){
       const style=e.style?`<div class="muted" style="font-size:10px;margin-top:2px">${t('focus')}: ${esc(e.style)}</div>`:'';
       return `<div class="rrow"><div><b>${esc(e.title)}</b>${role} ${tier}${cr}</div><div>${badges||'<span class="muted">—</span>'}</div>${style}</div>`;
     }).join('')||'<div class="muted">—</div>';
-    // activity feed — makes agency (idea proposals, meetings, work) visible
-    $('p_activity').innerHTML=(o.activity||[]).slice().reverse().slice(0,8).map(a=>
-      `<div class="row"><span class="muted" style="font-size:10px">${esc(a.kind)}</span>`
-      +`<span style="font-size:11px;text-align:right;max-width:170px">${esc(a.text)}</span></div>`).join('')||'<div class="muted">—</div>';
+    // activity feed — makes agency (idea proposals, meetings, work, milestones) visible.
+    // milestone = a KR that really hit 100% → highlighted so real wins pop.
+    const AKIND={milestone:'#ffd479',meeting:'#8ab4ff',idea:'#c9a2ff',work:'#6ee7a8',blocked:'#ff8a8a',metric:'#6ee7a8'};
+    $('p_activity').innerHTML=(o.activity||[]).slice().reverse().slice(0,8).map(a=>{
+      const c=AKIND[a.kind]||'#7a7f92',mile=a.kind==='milestone';
+      return `<div class="row"${mile?' style="background:rgba(255,212,121,.10);border-radius:4px"':''}>`
+      +`<span style="font-size:10px;color:${c}">${esc(a.kind)}</span>`
+      +`<span style="font-size:11px;text-align:right;max-width:170px${mile?';font-weight:700':''}">${esc(a.text)}</span></div>`;
+    }).join('')||'<div class="muted">—</div>';
     // active workflows + current step (honest: reflects real dispatch state)
     const wf=(o.workflows||[]).filter(w=>!w.done);
     $('p_workflows').innerHTML=wf.length?wf.map(w=>

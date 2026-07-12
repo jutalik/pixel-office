@@ -142,6 +142,7 @@ class AutonomyLoop:
         self._last_initiative: Optional[float] = None
         self._last_metrics: Optional[float] = None
         self._last_meeting: Optional[float] = None
+        self._celebrated: set = set()   # KR ids already celebrated at 100% (fire once)
 
     def tick(self, now: float) -> TickReport:
         c = self.company
@@ -312,5 +313,16 @@ class AutonomyLoop:
                             r.initiatives = 1
                 except Exception:
                     pass
+            # 9. milestone celebration (HONEST): a Key Result that has actually reached
+            #    100% is a real win worth surfacing — recorded ONCE, only on genuine
+            #    completion (real metrics in --live, simulated progress in --demo). It
+            #    fabricates nothing: no KR is marked done that the numbers didn't finish.
+            try:
+                for kr in c.okrs.key_results:
+                    if kr.progress >= 1.0 and kr.id not in self._celebrated:
+                        self._celebrated.add(kr.id)
+                        c.record_activity("milestone", f"🎉 goal reached: {kr.text}")
+            except Exception:
+                pass
             r.ceo_pending = len(c.memos.ceo_queue())
         return r
