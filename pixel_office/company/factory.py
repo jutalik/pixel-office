@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import re
 
+from . import roles as _roles
 from .company import Company
 from .employee import Employee
 from .mode import OperatingMode
@@ -69,10 +70,15 @@ def build_company(manifest: dict, *, sink=None, host_id: str = "local") -> Compa
         except (TypeError, ValueError):
             count = 1
         base = _slug(title)
+        spec = _roles.match_title(str(title))   # resolve free-text title → library role (None if unclear)
         for i in range(count):
             eid = base if count == 1 else f"{base}-{i + 1}"
             while eid in seen:
                 eid += "x"
             seen.add(eid)
-            company.team.hire(Employee(eid, str(title)))
+            if spec:   # keep the user's title (additive); enrich with role/skills/workflows/persona/tier
+                company.team.hire(Employee(eid, str(title), persona=spec.persona, tier=spec.tier,
+                                           skills=spec.skills, role=spec.id, workflows=spec.workflows))
+            else:
+                company.team.hire(Employee(eid, str(title)))
     return company

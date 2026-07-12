@@ -227,9 +227,9 @@ def _cmd_run(args) -> int:
         import threading
         import time as _time
 
-        from .company.autonomy import AutonomyLoop
-        loop = AutonomyLoop(company, max_dispatch=2, review_every_s=30,
-                            radar_every_s=60, hr_every_s=90)
+        from .company.autonomy import AutonomyLoop, planner_for
+        loop = AutonomyLoop(company, planner_fn=planner_for(company), max_dispatch=2,
+                            review_every_s=30, radar_every_s=60, hr_every_s=90)
         stop = threading.Event()
         interval = 6.0
 

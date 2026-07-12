@@ -259,3 +259,45 @@ synthesis call. Cadence + token cap are policy; it never runs unbounded.
 
 Every phase: build → test → live-verify → Codex cross-review, one adapter/module
 at a time, token-efficiency measured (reasoning-calls per decision) as the gate.
+
+## 11. Roles, Skills & Workflows (built-in library)
+
+A scaffolded company arrives knowing the jobs software companies actually hire for,
+what each one is good at, and how to ship work — not just a list of title strings.
+
+- **Roles** (`company/roles.py`): a catalog of canonical roles — `project-owner`,
+  `architect` (a high-performance architecture engineer, `deep` tier), `backend`,
+  `frontend`, `qa`, `devops`, `pm`, `designer`, `writer`, `growth`, `data`. Each
+  carries a persona, a default model tier, its skills, and the workflows it can
+  drive. `DEFAULT_TEAMS[stack]` seeds a real team when the user names no roles
+  (`api-service` → PO + architect + backend + qa + devops, etc.) — seeded in the
+  scaffold layer so `build_company` behavior is unchanged for existing inputs.
+  `match_title` resolves a user's free-text title to a role (title/id words outweigh
+  shared skill keywords); an unclear title stays a plain employee — never a
+  confident-wrong mapping.
+- **Skills** (`company/skills.py`): named competencies with routing keywords and a
+  tier. A person's **proficiency** at a skill is NEVER declared — it is derived from
+  evidence (`learning.EmployeeMemory.competency`) and reports "insufficient
+  evidence" (None) below the sample floor. Workflow steps accrue evidence under a
+  compound `task_class = "{kr}:{skill}"`, so per-skill competency emerges without
+  ever colliding with the default planner's bare `kr.id`.
+- **Workflows** (`company/workflows.py`): ordered playbooks (ship-feature,
+  content-pipeline, architecture-review, growth-experiment, incident-response). The
+  `workflow_planner` — chosen **automatically** when the team carries workflows (a
+  library-role company does), not a user opt-in — drives a KR through its steps
+  **one per tick**, routing each step to the best-skilled employee
+  (`routing.best_owner_for_step`) and advancing only on a real, *matching*
+  `TaskResult.ok` (`company.advance_workflow`) — a failed step **halts** the run
+  (retry via `company.clear_workflow`) rather than skipping ahead. No fabricated
+  progress. The `default_planner` function is unchanged; a team with no workflows
+  uses it. Note this does change `po run` behavior for existing manifests whose
+  titles resolve to library roles (task shape `kr:skill`, sharper routing) — a
+  deliberate feature, kept green against all existing tests.
+
+  Routing also unions each role's skill keywords into `_emp_keywords`, so owner
+  selection sharpens for library roles; title-only (hand-built) employees are
+  unaffected.
+
+Surfaced honestly in `/api/company` (`roster[].role/skills/workflows/tier`,
+`workflows[]` with the live step) and painted in the office CEO panel + avatar role
+badges (KO/EN).

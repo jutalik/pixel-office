@@ -95,6 +95,12 @@ class OrgRuntime:
             self._emit(emp.id, "Blocked")
             self.memory_of(emp.id).record("task_blocked", task.task_class, False, ref=str(task.id))
             return TaskResult(task.id, emp.id, ok=False, summary="executor returned no valid result")
+        if result.task_id != task.id or result.employee_id != emp.id:
+            # honesty: the result must belong to THIS task/employee, or its ok is not
+            # evidence for this step — treat as blocked rather than mis-crediting it.
+            self._emit(emp.id, "Blocked")
+            self.memory_of(emp.id).record("task_blocked", task.task_class, False, ref=str(task.id))
+            return TaskResult(task.id, emp.id, ok=False, summary="executor result mismatched the task")
         self._emit(emp.id, "Done" if result.ok else "Blocked")
         # learn from the outcome (evidence-first competency; deterministic)
         self.memory_of(emp.id).record("task_done" if result.ok else "task_blocked",

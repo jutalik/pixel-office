@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from . import skills as _skills
 from .employee import Employee
 
 _WORD = re.compile(r"[a-z0-9]+")
@@ -81,6 +82,7 @@ def _emp_keywords(emp: Employee) -> set:
     for fam in _families_of(emp):
         kws |= ROLE_FAMILIES[fam]
     kws |= _words(emp.title)   # the title words themselves count as fit signals
+    kws |= _skills.keywords_for(getattr(emp, "skills", ()))   # explicit skills sharpen fit (empty for title-only)
     return kws
 
 
@@ -102,4 +104,24 @@ def best_owner(company, kr) -> Optional[Employee]:
         return (role_fit(kr, emp), comp, -load)
 
     # max is stable → ties fall to insertion (hire) order, keeping routing deterministic
+    return max(team, key=key)
+
+
+def best_owner_for_step(company, kr, step) -> Optional[Employee]:
+    """Route ONE workflow step to the best-skilled employee. Fit = overlap with the
+    step's skill keywords (or its family fallback); tie-break on evidence-based
+    proficiency for that skill on this KR (never invented — None → 0.0), then load."""
+    team = company.team.all()
+    if not team:
+        return None
+    step_kw = _skills.keywords_for([step.skill]) if getattr(step, "skill", "") \
+        else ROLE_FAMILIES.get(getattr(step, "family", ""), set())
+    kr_id = str(getattr(kr, "id", ""))
+
+    def key(emp):
+        mem = company.runtime.memory_of(emp.id)
+        fit = len(step_kw & _emp_keywords(emp))
+        prof = (_skills.proficiency(mem, step.skill, kr_id) or 0.0) if getattr(step, "skill", "") else 0.0
+        return (fit, prof, -len(mem.evidence))
+
     return max(team, key=key)

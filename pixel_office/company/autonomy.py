@@ -15,9 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
+from . import skills, workflows
 from .company import Company
 from .memo import DecisionMemo
-from .routing import best_owner
+from .routing import best_owner, best_owner_for_step
 from .runtime import Task
 
 
@@ -41,6 +42,50 @@ def default_planner(company: Company, kr) -> Task:
     owner = best_owner(company, kr)
     return Task(title=f"advance KR: {kr.text}",
                 dri=owner.id if owner else "unassigned", task_class=kr.id)
+
+
+class _NoWork(Exception):
+    """'This workflow has nothing to dispatch this tick' — swallowed by the plan
+    loop's try/except, so no task is enqueued (never fabricate work)."""
+
+
+def workflow_planner(company: Company, kr) -> Task:
+    """Opt-in planner: drive a KR through its workflow's ordered steps, ONE per tick,
+    each routed to the best-skilled employee. Steps gate on the prior step's real
+    result (company.advance_workflow). Falls back to default_planner when no workflow
+    fits the KR — so it is a strict superset of the default behavior."""
+    run = company.workflows.get(str(kr.id))
+    if run is None:
+        wf_id = workflows.for_kr(kr)
+        if wf_id is None:
+            return default_planner(company, kr)
+        run = company.start_workflow(kr.id, wf_id)
+    if run.done or run.blocked:
+        raise _NoWork()
+    wf = workflows.get(run.workflow_id)
+    if wf is None or run.step_index >= len(wf.steps):
+        run.done = True
+        raise _NoWork()
+    step = wf.steps[run.step_index]
+    owner = best_owner_for_step(company, kr, step)
+    if owner is None:
+        raise _NoWork()   # no one to own this step → don't enqueue an unassignable task
+    task = Task(title=f"{step.name}: {kr.text}", dri=owner.id,
+                task_class=skills.task_class_for(step.skill or step.family, kr.id))
+    company.mark_workflow_task(task.id, kr.id)
+    return task
+
+
+def planner_for(company: Company) -> PlannerFn:
+    """The workflow planner AUTOMATICALLY when the team carries workflows (built-in
+    roles do), else the plain planner. Not a user opt-in — a company with library
+    roles ships work via workflows by default."""
+    try:
+        if any(getattr(e, "workflows", ()) for e in company.team.all()):
+            return workflow_planner
+    except Exception:
+        pass
+    return default_planner
 
 
 def _due(last: Optional[float], now: float, every: float) -> bool:
@@ -81,13 +126,19 @@ class AutonomyLoop:
                 try:
                     result = c.runtime.assign(task)
                     r.dispatched += 1
+                    c.advance_workflow(task, result)   # advance the KR's workflow a step (no-op for plain tasks)
                     # honest: only call it work when it actually succeeded
                     if getattr(result, "ok", False):
                         c.record_activity("work", f"{task.dri} → {task.title}")
                     else:
                         c.record_activity("blocked", f"{task.dri} blocked on {task.title}")
                 except Exception:
-                    pass   # a bad task is dropped, not fatal
+                    # assign raised (e.g. a fired/unknown DRI): halt the workflow and
+                    # release its task→KR mapping so it can't leak or infinitely retry.
+                    try:
+                        c.advance_workflow(task, None)
+                    except Exception:
+                        pass
             # 3-5 each INDEPENDENTLY fail-open so one failure can't abort the rest
             if _due(self._last_review, now, self.review_every_s):
                 self._last_review = now

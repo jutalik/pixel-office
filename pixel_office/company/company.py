@@ -34,6 +34,8 @@ class Company:
         self._trends: list = []
         self._last_meeting: Optional[dict] = None
         self.backlog: list = []          # pending Tasks (autonomy loop drains this)
+        self.workflows: dict = {}        # kr_id -> WorkflowRun (opt-in workflow dispatch)
+        self._wf_task_kr: dict = {}      # task.id -> kr_id (attribution for advance_workflow)
         self.activity: list = []         # bounded feed of what the company did (CEO watch)
         # guards company state (memos/backlog/trends/okrs/activity) when the
         # autonomy thread mutates it while the API reads it. RLock: summary() ->
@@ -45,6 +47,69 @@ class Company:
         t = Task(title=title, dri=dri, task_class=task_class)
         self.backlog.append(t)
         return t
+
+    # ---- workflows: ordered playbooks dispatched one honest step at a time -------
+    def start_workflow(self, kr_id, workflow_id):
+        from .workflows import WorkflowRun
+        run = WorkflowRun(kr_id=str(kr_id), workflow_id=str(workflow_id))
+        self.workflows[str(kr_id)] = run
+        return run
+
+    def mark_workflow_task(self, task_id, kr_id) -> None:
+        """Remember which KR/workflow a dispatched task belongs to, so its result
+        can advance the right run (task ids are unique per process)."""
+        try:
+            self._wf_task_kr[int(task_id)] = str(kr_id)
+        except (TypeError, ValueError):
+            pass
+
+    def advance_workflow(self, task, result) -> None:
+        """Advance a workflow one step on a REAL result: success → next step (complete
+        past the last), failure → halt (blocked). Never fabricates progress. Fail-open
+        so a bug here can't wedge the dispatch loop."""
+        try:
+            kr_id = self._wf_task_kr.pop(int(getattr(task, "id", -1)), None)
+            if kr_id is None:
+                return   # not a workflow task (e.g. the default planner) → no-op
+            run = self.workflows.get(kr_id)
+            if run is None or run.done:
+                return
+            from .workflows import get as _wf_get
+            wf = _wf_get(run.workflow_id)
+            if getattr(result, "ok", False):
+                run.blocked = False
+                run.step_index += 1
+                if wf is None or run.step_index >= len(wf.steps):
+                    run.done = True
+                    self.record_activity("workflow", f"{run.workflow_id} complete ({kr_id})")
+                else:
+                    self.record_activity("workflow", f"{run.workflow_id}: {wf.steps[run.step_index].name} next")
+            else:
+                run.blocked = True   # halt — a failed step needs attention (clear_workflow to retry)
+        except Exception:
+            pass
+
+    def clear_workflow(self, kr_id) -> bool:
+        """Recovery: un-block a halted workflow so its failed step retries next tick.
+        A deliberate human/review action — steps still only advance on real success."""
+        run = self.workflows.get(str(kr_id))
+        if run and run.blocked:
+            run.blocked = False
+            return True
+        return False
+
+    def workflows_view(self) -> list:
+        from .workflows import get as _wf_get
+        with self._lock:
+            out = []
+            for run in self.workflows.values():
+                wf = _wf_get(run.workflow_id)
+                nsteps = len(wf.steps) if wf else 0
+                step_name = wf.steps[run.step_index].name if (wf and 0 <= run.step_index < nsteps) else ""
+                out.append({"kr_id": run.kr_id, "workflow_id": run.workflow_id,
+                            "step": run.step_index, "steps": nsteps, "step_name": step_name,
+                            "done": run.done, "blocked": run.blocked})
+            return out
 
     def record_activity(self, kind: str, text: str) -> None:
         """Append one real thing the company did (plan/work/decision/trend/hr).
@@ -81,7 +146,9 @@ class Company:
         Real org data (from roles), so avatars can group into department rooms."""
         from .routing import department_of
         with self._lock:
-            return [{"id": e.id, "title": e.title, "dept": department_of(e)}
+            return [{"id": e.id, "title": e.title, "dept": department_of(e),
+                     "role": e.role, "skills": list(e.skills),
+                     "workflows": list(e.workflows), "tier": e.tier}
                     for e in self.team.all()]
 
     def hr_review(self) -> list:

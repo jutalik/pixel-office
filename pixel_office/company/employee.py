@@ -20,12 +20,19 @@ class Employee:
     persona: str = ""               # short role rules / voice (cached preamble)
     tier: str = "cheap"             # default model tier for this role
     isolated: bool = False          # own account/config-dir (only for stateful roles)
+    skills: tuple = ()              # skill ids (company.skills) this role holds
+    role: str = ""                  # library role id (company.roles), "" if freeform
+    workflows: tuple = ()           # workflow ids (company.workflows) this role can drive
 
     def validate(self) -> "Employee":
         if not self.id or not self.title:
             raise ValueError("employee needs an id and a title")
         if self.tier not in TIERS:
             raise ValueError(f"tier {self.tier!r} not in {TIERS}")
+        if not isinstance(self.skills, tuple) or not all(isinstance(s, str) for s in self.skills):
+            raise ValueError("skills must be a tuple of str")
+        if not isinstance(self.workflows, tuple) or not all(isinstance(w, str) for w in self.workflows):
+            raise ValueError("workflows must be a tuple of str")
         return self
 
 

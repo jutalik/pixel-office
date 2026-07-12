@@ -96,15 +96,29 @@ def _parse_roles(text: str) -> List[dict]:
     return roles
 
 
+def _default_team_roles(stack: str) -> List[dict]:
+    """When the user names no roles, seed the built-in team for their stack so the
+    company arrives with real roles (PO, architect, backend, …). Lazy import keeps
+    the scaffold layer decoupled from the whole company package."""
+    from ..company import roles as _roles
+    out = []
+    for rid in _roles.default_team_for(stack):
+        spec = _roles.get(rid)
+        if spec:
+            out.append({"title": spec.title, "count": 1})
+    return out
+
+
 def answers_to_manifest(answers: Dict[str, str]) -> Manifest:
+    stack = (answers.get("stack") or "api-service").strip() or "api-service"
     d = {
         "what": answers.get("what", ""),
         "name": answers.get("name") or answers.get("what", ""),
         "goal": answers.get("goal", ""),
         "niche": answers.get("niche", ""),
-        "stack": (answers.get("stack") or "api-service").strip() or "api-service",
+        "stack": stack,
         "benchmarks": [b.strip() for b in str(answers.get("benchmarks", "")).split(",") if b.strip()],
-        "roles": _parse_roles(answers.get("roles", "")),
+        "roles": _parse_roles(answers.get("roles", "")) or _default_team_roles(stack),
         "key_results": _parse_krs(answers.get("key_results", "")),
         "mode": (answers.get("mode") or "").strip() or "Copilot",
     }
