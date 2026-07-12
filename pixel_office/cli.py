@@ -131,6 +131,21 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _capability_note() -> str:
+    """A compact 'what can I run here' line for onboarding — reuses `po doctor`'s
+    probe without dumping the full matrix. Honest: names only what's actually found,
+    and never blocks scaffolding (a missing CLI still lets you `po run --demo`)."""
+    try:
+        avail = [n for n, c in doctor.run().get("clis", {}).items() if c.get("available")]
+    except Exception:
+        return ""
+    if avail:
+        return ("detected AI CLIs: " + ", ".join(avail)
+                + " — ready for `po up` / `po run --live`.  (`po doctor` for the full matrix)")
+    return ("no AI CLIs detected — `po run --demo` still works with zero setup (simulated); "
+            "install Claude / Codex / Grok for `po up` and `po run --live`.  (`po doctor` for details)")
+
+
 def _cmd_new(args) -> int:
     from .scaffold import builder
     from .scaffold.init_chat import answers_to_manifest, run_interactive
@@ -157,10 +172,16 @@ def _cmd_new(args) -> int:
     except (ValueError, OSError) as e:  # OSError covers Permission/IsADirectory/etc.
         print(f"po new: {e}", file=sys.stderr)
         return 1
+    rel = project.relative_to(Path.cwd()) if project.is_relative_to(Path.cwd()) else project
     print(f"\ncreated {project}")
-    print(f"  cd {project.relative_to(Path.cwd()) if project.is_relative_to(Path.cwd()) else project}"
-          f"/backend && uvicorn app:app --reload")
-    print("  then `po up` to watch your team build it")
+    print("next:")
+    print(f"  cd {rel}")
+    print("  po run --demo    # watch your AI company run itself (simulated, 0 tokens)")
+    print("  po run --live    # real: employees use your CLIs (spends tokens)")
+    print("  cd backend && uvicorn app:app --reload    # or run the product it builds")
+    note = _capability_note()               # onboarding: what can this machine actually run?
+    if note:
+        print("\n" + note)
     return 0
 
 
@@ -244,6 +265,14 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
         banner += " · LIVE (real CLI agents — spends tokens; dormant until assigned)"
         print("live: employees will use your real CLIs and SPEND TOKENS when assigned work.",
               file=sys.stderr)
+        try:                                   # live NEEDS a real CLI — say so loudly, don't fail silent
+            _avail = [n for n, c in doctor.run().get("clis", {}).items() if c.get("available")]
+        except Exception:
+            _avail = []
+        if not _avail:
+            print("live: WARNING — no AI CLI detected on PATH. Employees will be Blocked when "
+                  "assigned. Install Claude/Codex/Grok (`po doctor`), or use `po run --demo`.",
+                  file=sys.stderr)
     elif demo:
         # DEMO: the deterministic executor SIMULATES work (no real LLM, 0 tokens)
         # so you can see the office move. This is explicitly not real work.

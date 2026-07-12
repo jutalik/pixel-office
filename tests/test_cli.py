@@ -11,6 +11,32 @@ def _args(**kw):
     return types.SimpleNamespace(**kw)
 
 
+# ---- onboarding: capability note surfaces at `po new` --------------------------
+
+def test_capability_note_names_available_clis(monkeypatch):
+    monkeypatch.setattr(doctor, "run", lambda: {"clis": {
+        "claude": {"available": True}, "codex": {"available": False}}})
+    note = cli._capability_note()
+    assert "claude" in note and "codex" not in note and "po doctor" in note
+
+
+def test_capability_note_when_no_cli_still_points_to_demo(monkeypatch):
+    monkeypatch.setattr(doctor, "run", lambda: {"clis": {"claude": {"available": False}}})
+    note = cli._capability_note()
+    assert "no AI CLIs detected" in note and "po run --demo" in note   # honest: demo still works
+
+
+def test_po_new_surfaces_env_and_company_next_steps(tmp_path, capsys, monkeypatch):
+    # a new user should learn what they can run (env) AND the right next command
+    monkeypatch.setattr(doctor, "run", lambda: {"clis": {"claude": {"available": True}}})
+    rc = cli._cmd_new(_args(dir=str(tmp_path), what="recipe blog", name="rb", goal="", niche="",
+                            stack="api-service", benchmarks="", roles="", kr="", mode="Copilot", yes=True))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "po run --demo" in out and "po run --live" in out    # company mode, not stale `po up`
+    assert "detected AI CLIs: claude" in out                    # env check auto-surfaced at `new`
+
+
 # ---- po up multi-CLI wiring ----------------------------------------------------
 
 @pytest.fixture()
