@@ -85,6 +85,20 @@ def new_idea_record(proposer_id: str, lens: str, target_kr_id: str, *,
                       created_tick=int(created_tick))
 
 
+def split_assumption(text: str) -> Tuple[str, Tuple[str, ...]]:
+    """Split a trailing 'Assumption: <x>' line out of a live idea into
+    (content, (assumption,)). Only what the CLI ACTUALLY returned is kept — nothing
+    is synthesized, so a proposer's assumption is always their own words or absent."""
+    t = " ".join(str(text or "").split()).strip()
+    low = t.lower()
+    idx = low.rfind("assumption:")
+    if idx == -1:
+        return t, ()
+    content = t[:idx].strip().rstrip("-–—.").strip()
+    assumption = t[idx + len("assumption:"):].strip()
+    return (content or t), ((assumption[:160],) if assumption else ())
+
+
 def lenses_for(family: str) -> Tuple[str, ...]:
     return LENSES.get(str(family or ""), _FALLBACK)
 

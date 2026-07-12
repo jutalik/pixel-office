@@ -213,14 +213,18 @@ class AutonomyLoop:
                 fetched = None
         # idea CONTENT generation (D2): a live CLI writes the actual idea in --live;
         # deterministic skeleton otherwise. Done here so the CLI can't freeze the lock.
-        idea_content = ""
+        idea_content, idea_assumptions, idea_gen_failed = "", (), False
         if initiative_plan and self.idea_gen_fn is not None:
             try:
-                idea_content = str(self.idea_gen_fn(
+                raw = str(self.idea_gen_fn(
                     initiative_plan["objective"], initiative_plan["family"],
                     initiative_plan["lens"], initiative_plan["kr_text"]) or "")
             except Exception:
-                idea_content = ""
+                raw = ""
+            if raw.strip():
+                idea_content, idea_assumptions = creativity.split_assumption(raw)
+            else:
+                idea_gen_failed = True   # live CLI produced nothing → do NOT fabricate a proposal
         # ---- phase C: record results + cadence work (under lock — pure state) --------
         with c._lock:
             # KR baseline BEFORE this tick's metrics land — the snapshot an idea's
@@ -352,12 +356,14 @@ class AutonomyLoop:
             #    deterministic skeleton) against a specific target KR, and — if reversible
             #    — pursues it as ONE bounded task. The idea earns nothing here; it only
             #    becomes outcome-associated later if that KR actually rises after it ships.
-            if initiative_plan is not None:
+            # skip entirely if a LIVE idea generation failed — never attribute a
+            # deterministic skeleton to the employee as if their CLI authored it.
+            if initiative_plan is not None and not idea_gen_failed:
                 try:
                     rec = creativity.new_idea_record(
                         initiative_plan["emp"], initiative_plan["lens"], initiative_plan["kr_id"],
                         objective=initiative_plan["objective"], content=idea_content,
-                        created_tick=tick_no)
+                        proposer_assumptions=idea_assumptions, created_tick=tick_no)
                     if c.propose_idea(rec) is not None:   # None → ledger full of active ideas, skip
                         c.record_activity("idea", f"{rec.proposer_id} proposed [{rec.lens}] → {initiative_plan['kr_text']}")
                         if rec.reversible and len(c.backlog) < self.max_dispatch:

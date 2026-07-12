@@ -142,6 +142,7 @@ const STR={
     roster:'Team',workflowsHead:'Workflows',step:'step',noWork:'no active workflow',learning:'learning',
     ideasHead:'Ideas & outcomes',noIdeas:'no ideas yet',ideaPending:'in flight',ideaAssoc:'KR rose after ship',
     assocNote:'association only — not proof the idea caused it',topIdeators:'brings validated ideas',
+    tried:'tried',inconclusive:'inconclusive',dropped:'dropped',
     creative:'creative',focus:'focus',activityHead:'Activity feed',simulated:'simulated',close:'Close',
     tip_demo:'a SIMULATED demo company — deterministic activity, no real work or tokens.',
     tip_live:'every avatar is a real employee running your CLIs on real work (spends tokens).',
@@ -160,6 +161,7 @@ const STR={
     roster:'팀',workflowsHead:'워크플로',step:'단계',noWork:'진행 중 워크플로 없음',learning:'학습중',
     ideasHead:'아이디어 & 성과',noIdeas:'아직 아이디어 없음',ideaPending:'진행 중',ideaAssoc:'배포 후 KR 상승',
     assocNote:'상관관계일 뿐 — 아이디어가 원인이라는 증명 아님',topIdeators:'검증된 아이디어 기여',
+    tried:'시도',inconclusive:'미결',dropped:'폐기',
     creative:'창의',focus:'주력',activityHead:'활동 피드',simulated:'시뮬레이션',close:'닫기',
     tip_demo:'시뮬레이션 데모 회사입니다 — 결정론적 활동이며 실제 작업·토큰 소모가 없습니다.',
     tip_live:'모든 아바타는 실제 직원으로, 당신의 CLI로 진짜 작업을 수행합니다(토큰 소모).',
@@ -474,6 +476,10 @@ function renderIdeas(o){const el=$('p_ideas');if(!el)return;
   // proposers who bring VALIDATED ideas (evidence-based standing)
   if(rep.length){h+=`<div class="muted" style="font-size:10px;margin-top:4px">${t('topIdeators')}</div>`;
     for(const p of rep){h+=`<div class="row"><span style="font-size:11px">${esc(p.proposer)}</span><b>${p.points}</b></div>`;}}
+  // neutral outcome tally — failures shown honestly as counts, not as a score
+  const oc=o.outcomes||{},total=Object.values(oc).reduce((a,b)=>a+b,0);
+  if(total){h+=`<div class="muted" style="font-size:9px;margin-top:4px">${t('tried')}: ${total} · `
+    +`${t('ideaAssoc')} ${oc.associated||0} · ${t('inconclusive')} ${(oc.inconclusive||0)+(oc.ambiguous||0)} · ${t('dropped')} ${oc.dropped||0}</div>`;}
   el.innerHTML=h;}
 async function pollCompany(){try{const r=await fetch('/api/company');COMPANY=(r.status===204)?null:await r.json();}catch(e){COMPANY=null;}
   const mt=COMPANY&&COMPANY.meeting;   // a fresh meeting → its attendees gather in the meeting room for a window

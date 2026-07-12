@@ -249,26 +249,32 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
         company.runtime.executor = CLIExecutor(invoke_fn=_invoke,
                                                memories=company.runtime.memories,
                                                objective=company.okrs.objective)
+        try:                                   # live NEEDS a real CLI — say so loudly, don't fail silent
+            _avail = [n for n, c in doctor.run().get("clis", {}).items() if c.get("available")]
+        except Exception:
+            _avail = []
+        # idea generation uses an ACTUALLY-available CLI, not a hardcoded one (detection
+        # may advertise codex/grok while claude is absent).
+        _idea_cli = next((c for c in ("claude", "codex", "grok") if c in _avail), None)
 
         def idea_gen_fn(objective, family, lens, target):   # noqa: E306 — real creativity in --live
             # a real CLI writes the idea CONTENT (the autonomy loop calls this OUTSIDE
-            # the company lock). Bounded, fail-soft: on any error the loop falls back
-            # to a deterministic skeleton (never blocks, never fabricates a claim).
+            # the company lock). Returns "" if no compatible CLI or on any error — the
+            # loop then SKIPS the proposal in live (never attributes a skeleton to the
+            # employee as if their CLI wrote it).
+            if not _idea_cli:
+                return ""
             prompt = (f"You are a {family} specialist at a company whose goal is: {objective}.\n"
                       f"Propose ONE small, reversible, creative idea to move this metric: {target}.\n"
                       f"Think specifically through the '{lens}' lens. Reply in 1-2 sentences; "
                       f"end with 'Assumption: <your key assumption>'.")
             try:
-                return str(_invoke("claude", prompt) or "")[:400]
+                return str(_invoke(_idea_cli, prompt) or "")[:400]
             except Exception:
                 return ""
         banner += " · LIVE (real CLI agents — spends tokens; dormant until assigned)"
         print("live: employees will use your real CLIs and SPEND TOKENS when assigned work.",
               file=sys.stderr)
-        try:                                   # live NEEDS a real CLI — say so loudly, don't fail silent
-            _avail = [n for n, c in doctor.run().get("clis", {}).items() if c.get("available")]
-        except Exception:
-            _avail = []
         if not _avail:
             print("live: WARNING — no AI CLI detected on PATH. Employees will be Blocked when "
                   "assigned. Install Claude/Codex/Grok (`po doctor`), or use `po run --demo`.",

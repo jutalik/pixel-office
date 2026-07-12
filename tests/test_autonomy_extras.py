@@ -27,6 +27,34 @@ def test_idea_becomes_outcome_associated_only_after_target_kr_rises_post_deliver
     assert "outcome" in [a["kind"] for a in c.activity_view(50)]
 
 
+def test_live_idea_gen_failure_does_not_fabricate_an_employee_proposal():
+    # in --live, if the CLI returns nothing, NO idea is recorded under the employee —
+    # a deterministic skeleton must never be attributed as their authored proposal.
+    c = build_company({"what": "x", "goal": "grow",
+                       "roles": [{"title": "Growth Marketer", "count": 1}]})
+    c.okrs.add_kr(KeyResult("kr1", "reach 1000 signups", target=1000))
+    loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9,
+                        idea_gen_fn=lambda o, f, l, t: "")   # live gen that yields nothing
+    loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
+    loop._last_radar = loop._last_hr = 1e18
+    loop.tick(0)
+    assert c.ideas == []                                  # nothing fabricated
+    assert "idea" not in [a["kind"] for a in c.activity_view(50)]
+
+
+def test_live_idea_gen_content_and_assumption_are_recorded():
+    c = build_company({"what": "x", "goal": "grow",
+                       "roles": [{"title": "Growth Marketer", "count": 1}]})
+    c.okrs.add_kr(KeyResult("kr1", "reach 1000 signups", target=1000))
+    loop = AutonomyLoop(c, max_dispatch=2, initiative_every_s=1e9,
+                        idea_gen_fn=lambda o, f, l, t: "Launch a referral link. Assumption: users share")
+    loop._last_review = loop._last_meeting = loop._last_metrics = 1e18
+    loop._last_radar = loop._last_hr = 1e18
+    loop.tick(0)
+    assert c.ideas and c.ideas[0].content == "Launch a referral link"
+    assert c.ideas[0].proposer_assumptions == ("users share",)   # only the CLI's own words
+
+
 def test_idea_whose_task_fails_is_dropped_with_zero_points():
     c = build_company({"what": "x", "goal": "grow",
                        "roles": [{"title": "Growth Marketer", "count": 1}]})

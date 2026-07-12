@@ -183,9 +183,15 @@ class Company:
                         "delta": round(i.associated_delta, 3), "points": round(i.outcome_points, 3)}
             rep = _ideas.proposer_reputation(self.ideas)
             top = sorted(rep.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+            # neutral outcome tally — failures/inconclusive are shown as counts, never
+            # as a failure score or hidden negative reputation (honest transparency).
+            counts: dict = {}
+            for i in self.ideas:
+                counts[i.status] = counts.get(i.status, 0) + 1
             return {"associated": [row(i) for i in assoc[:limit]],
                     "pending": [row(i) for i in pending[-limit:]],
-                    "reputation": [{"proposer": p, "points": round(v, 3)} for p, v in top]}
+                    "reputation": [{"proposer": p, "points": round(v, 3)} for p, v in top],
+                    "outcomes": counts}
 
     def record_activity(self, kind: str, text: str) -> None:
         """Append one real thing the company did (plan/work/decision/trend/hr).

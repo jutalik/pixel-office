@@ -11,6 +11,14 @@ def _delivered(proposer, kr, snapshot, delivered_at):
     return r
 
 
+def test_split_assumption_keeps_only_what_the_cli_returned():
+    from pixel_office.company.creativity import split_assumption
+    c, a = split_assumption("Add a weekly digest email. Assumption: users check email weekly")
+    assert c == "Add a weekly digest email" and a == ("users check email weekly",)
+    c2, a2 = split_assumption("Just an idea with no assumption line")
+    assert a2 == () and "idea" in c2                      # nothing fabricated when absent
+
+
 def test_new_record_always_has_system_floor_assumption_and_skeleton():
     r = new_idea_record("alice", "flow", "kr1", objective="grow signups")
     assert r.system_assumptions and "unverified" in r.system_assumptions[0]
