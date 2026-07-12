@@ -30,7 +30,7 @@ def _active_stalled(company: Company, threshold: float = 0.1) -> list:
     out = []
     for kr in company.okrs.stalled(threshold):
         run = company.workflows.get(str(kr.id))
-        if run is None or not run.done:
+        if run is None or not (run.done or run.abandoned):
             out.append(kr)
     return out
 
@@ -74,7 +74,7 @@ def workflow_planner(company: Company, kr) -> Task:
         if wf_id is None:
             return default_planner(company, kr)
         run = company.start_workflow(kr.id, wf_id)
-    if run.done or run.blocked:
+    if run.done or run.blocked or run.abandoned:
         raise _NoWork()
     wf = workflows.get(run.workflow_id)
     if wf is None or run.step_index >= len(wf.steps):
@@ -146,7 +146,11 @@ class AutonomyLoop:
     def tick(self, now: float) -> TickReport:
         c = self.company
         r = TickReport()
-        with c._lock:   # serialize company mutations vs /api/company reads
+        # ---- phase A: plan + choose work (under lock — pure state, NO I/O) --------
+        # The lock serializes COMPANY state (backlog/okrs/activity/memos/workflows) vs
+        # /api/company reads. Per-employee memory is mutated lock-free in phase B (so
+        # the CLI can't freeze the dashboard); its readers snapshot before iterating.
+        with c._lock:
             # 1. plan (BOUNDED): at most max_dispatch tasks toward stalled KRs
             if not c.backlog and len(c.team):
                 for kr in _active_stalled(c)[:self.max_dispatch]:
@@ -157,36 +161,58 @@ class AutonomyLoop:
                         pass   # a bad planner never wedges the loop
                 if r.planned:
                     c.record_activity("plan", f"planned {r.planned} task(s) toward the goal")
-            # 2. dispatch a bounded number (employees animate + learn)
-            while c.backlog and r.dispatched < self.max_dispatch:
-                task = c.backlog.pop(0)
-                try:
-                    result = c.runtime.assign(task)
-                    r.dispatched += 1
-                    c.advance_workflow(task, result)   # advance the KR's workflow a step (no-op for plain tasks)
-                    # honest: only call it work when it actually succeeded
-                    if getattr(result, "ok", False):
-                        c.record_activity("work", f"{task.dri} → {task.title}")
-                    else:
-                        c.record_activity("blocked", f"{task.dri} blocked on {task.title}")
-                except Exception:
-                    # assign raised (e.g. a fired/unknown DRI): halt the workflow and
-                    # release its task→KR mapping so it can't leak or infinitely retry.
+            # 2a. pick a bounded batch to dispatch — but DON'T run the CLI yet
+            pending: List[Task] = []
+            while c.backlog and len(pending) < self.max_dispatch:
+                pending.append(c.backlog.pop(0))
+            do_metrics = _due(self._last_metrics, now, self.metrics_every_s)
+            if do_metrics:
+                self._last_metrics = now
+            product_url = getattr(c, "product_url", "")
+        # ---- phase B: I/O OUTSIDE the lock (CLI + HTTP) so /api/company stays --------
+        #     responsive. Each employee's CLI can take minutes in live; the growth
+        #     poll hits the network. Holding the company lock across either would
+        #     freeze the dashboard, so we only touch state again in phase C.
+        dispatched = []
+        for task in pending:
+            try:
+                dispatched.append((task, c.runtime.assign(task), None))
+            except Exception as e:
+                dispatched.append((task, None, e))   # e.g. fired/unknown DRI
+        fetched = None
+        if do_metrics:
+            try:
+                fetched = metrics.fetch_metrics(product_url)
+            except Exception:
+                fetched = None
+        # ---- phase C: record results + cadence work (under lock — pure state) --------
+        with c._lock:
+            for task, result, err in dispatched:
+                if err is not None:
+                    # assign raised (fired/unknown DRI): halt any workflow AND leave an
+                    # honest blocked trace so NO task — plain, meeting, or initiative —
+                    # ever vanishes without a record.
                     try:
                         c.advance_workflow(task, None)
                     except Exception:
                         pass
-            # 3. growth loop (cadence): poll the product's REAL KPI surface → OKRs.
-            #    Only advances a KR from a metric it actually names (honest — unset
-            #    product url → no poll, OKRs stay at 0% until real metrics land).
-            if _due(self._last_metrics, now, self.metrics_every_s):
-                self._last_metrics = now
+                    c.record_activity("blocked", f"{task.dri or '?'} could not start {task.title}")
+                    continue
+                r.dispatched += 1
+                c.advance_workflow(task, result)   # advance the KR's workflow a step (no-op for plain tasks)
+                # honest: only call it work when it actually succeeded
+                if getattr(result, "ok", False):
+                    c.record_activity("work", f"{task.dri} → {task.title}")
+                else:
+                    c.record_activity("blocked", f"{task.dri} blocked on {task.title}")
+            # 3. growth loop: apply the REAL KPI surface polled above → OKRs. Only
+            #    advances a KR from a metric it actually names (honest — unset product
+            #    url → no poll, OKRs stay at 0% until real metrics land).
+            if do_metrics and fetched:
                 try:
-                    m = metrics.fetch_metrics(getattr(c, "product_url", ""))
-                    if m:
-                        moved = c.okrs.apply_metrics(m)
-                        if moved:
-                            c.record_activity("metric", f"real metrics moved {moved} KR(s)")
+                    moved = c.okrs.apply_metrics(fetched)
+                    if moved:
+                        c.record_activity("metric", f"real metrics moved {moved} KR(s)")
                 except Exception:
                     pass
             # 4-6 each INDEPENDENTLY fail-open so one failure can't abort the rest
@@ -230,26 +256,40 @@ class AutonomyLoop:
                         c.record_activity("hr", f"HR review — {len(r.hr_recs)} recommendation(s)")
                 except Exception:
                     pass
-            # 7. meeting (cadence, ADMISSION-GATED): only when a real decision blocks
-            #    >=2 employees on a workable stalled KR. Attendees gather in the office
-            #    meeting room; the meeting's action items become bounded backlog work.
+            # 7. meeting (cadence, ADMISSION-GATED on REAL evidence): a meeting only
+            #    earns its cost when the situation genuinely can't be resolved async —
+            #    a blocked workflow, or ≥2 stalled KRs competing for the same team. A
+            #    single stalled KR is handled by the review memo (async), not a meeting.
+            #    The admission_test inputs are computed from real state, not hard-coded.
             if _due(self._last_meeting, now, self.meeting_every_s):
                 self._last_meeting = now
                 try:
                     active = _active_stalled(c, 0.05)
-                    if active and admission_test(has_specific_decision=True, attendee_count=len(c.team),
-                                                 delay_cost=1.0, meeting_cost=0.0, async_resolvable=False):
+                    # a still-live blocked workflow is real evidence; an ABANDONED one
+                    # (blocked stays True) is not — it must not admit meetings forever.
+                    blocked_wf = any(getattr(run, "blocked", False) and not getattr(run, "abandoned", False)
+                                     for run in c.workflows.values())
+                    real_blocker = blocked_wf or len(active) >= 2   # needs the room, not a memo
+                    if active and admission_test(
+                            has_specific_decision=bool(active), attendee_count=len(c.team),
+                            delay_cost=(1.0 if real_blocker else 0.2), meeting_cost=0.1 * len(c.team),
+                            async_resolvable=not real_blocker):
                         kr = active[0]
                         attendees = [e.id for e in c.team.all()[:3]]
                         outcome = c.hold_meeting(f"stalled: {kr.text}", "reprioritize", attendees,
                                                  position_fn=_stub_position, synthesize_fn=_stub_synthesize,
                                                  packet={"kr": kr.text})
                         c.record_activity("meeting", f"met on: {kr.text}")
-                        # action items → bounded REAL backlog work (not display-only)
+                        # action items → bounded REAL backlog work (not display-only),
+                        # de-duped so a persistently-stalled KR doesn't re-queue the same
+                        # action every cadence (bounded cumulative cost, not just size).
+                        pending_titles = {t.title for t in c.backlog}
                         for act in (getattr(outcome, "actions", None) or [])[:self.max_dispatch]:
                             dri, task = str(act.get("dri", "")), str(act.get("task", ""))
-                            if dri and task and c.team.get(dri) and len(c.backlog) < self.max_dispatch:
+                            if (dri and task and c.team.get(dri) and task not in pending_titles
+                                    and len(c.backlog) < self.max_dispatch):
                                 c.add_task(task, dri, task_class="meeting-action")
+                                pending_titles.add(task)
                 except Exception:
                     pass
             # 8. individual initiative (BOUNDED): a creative employee proposes one idea

@@ -25,6 +25,7 @@ def fetch_metrics(base_url: str, *, timeout: float = 4.0) -> Dict[str, float]:
     if not base:
         return {}
     out: Dict[str, float] = {}
+    conflicted: set = set()   # a name two endpoints disagree on is ambiguous — don't trust it
     for path in _KPI_PATHS:
         try:
             with urllib.request.urlopen(base + path, timeout=timeout) as resp:  # nosec - user-configured host
@@ -34,7 +35,16 @@ def fetch_metrics(base_url: str, *, timeout: float = 4.0) -> Dict[str, float]:
         if isinstance(data, dict):
             for k, v in data.items():
                 if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float("inf"):
-                    out[str(k)] = float(v)
+                    name, val = str(k), float(v)
+                    if name in out and out[name] != val:
+                        # two endpoints report the SAME metric with DIFFERENT values →
+                        # silently keeping the last one would defeat okr.apply_metrics'
+                        # ambiguity guard. Mark it conflicted and drop it entirely.
+                        conflicted.add(name)
+                    else:
+                        out[name] = val
+    for name in conflicted:
+        out.pop(name, None)
     return out
 
 

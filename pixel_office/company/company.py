@@ -80,6 +80,7 @@ class Company:
             wf = _wf_get(run.workflow_id)
             if getattr(result, "ok", False):
                 run.blocked = False
+                run.retries = 0            # real progress → fresh retry budget for the next step
                 run.step_index += 1
                 if wf is None or run.step_index >= len(wf.steps):
                     run.done = True
@@ -93,12 +94,20 @@ class Company:
 
     def clear_workflow(self, kr_id) -> bool:
         """Recovery: un-block a halted workflow so its failed step retries next tick.
-        A deliberate human/review action — steps still only advance on real success."""
+        BOUNDED — after MAX_RETRIES failures on the same step the run is abandoned
+        instead of retried forever (no infinite token burn on a step that keeps
+        failing). Steps still only advance on real success; retries reset on progress."""
+        from .workflows import MAX_RETRIES
         run = self.workflows.get(str(kr_id))
-        if run and run.blocked:
-            run.blocked = False
-            return True
-        return False
+        if not (run and run.blocked and not run.abandoned):
+            return False
+        if run.retries >= MAX_RETRIES:
+            run.abandoned = True   # give up retrying — needs a human, not another auto-retry
+            self.record_activity("workflow", f"{run.workflow_id} abandoned after {run.retries} retries ({kr_id})")
+            return False
+        run.retries += 1
+        run.blocked = False
+        return True
 
     def workflows_view(self) -> list:
         from .workflows import get as _wf_get
@@ -110,7 +119,8 @@ class Company:
                 step_name = wf.steps[run.step_index].name if (wf and 0 <= run.step_index < nsteps) else ""
                 out.append({"kr_id": run.kr_id, "workflow_id": run.workflow_id,
                             "step": run.step_index, "steps": nsteps, "step_name": step_name,
-                            "done": run.done, "blocked": run.blocked})
+                            "done": run.done, "blocked": run.blocked,
+                            "retries": run.retries, "abandoned": run.abandoned})
             return out
 
     def record_activity(self, kind: str, text: str) -> None:

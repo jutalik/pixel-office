@@ -124,6 +124,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_mode.add_argument("--live", action="store_true",
                           help="employees use your real CLIs to do actual work (SPENDS TOKENS)")
     r.set_defaults(func=_cmd_run)
+    dm = sub.add_parser("demo", help="watch a sample AI company run itself — zero setup")
+    dm.add_argument("--port", type=int, default=7717)
+    dm.add_argument("--host-id", default="local")
+    dm.set_defaults(func=_cmd_demo)
     return p
 
 
@@ -176,15 +180,8 @@ def _cmd_deploy(args) -> int:
 
 
 def _cmd_run(args) -> int:
-    try:
-        import uvicorn
-        from .server import create_app
-    except ImportError:
-        print('po run needs the web extra: pip install "pixel-office[web]"', file=sys.stderr)
-        return 1
-    from .company.factory import build_company
-    from .company.runtime import Task
-
+    # manifest first: if there's nothing to run, "run po new" is the useful message
+    # (more actionable than an unrelated missing-dependency note).
     manifest_path = Path(args.dir) / "pixel-office.json"
     if not manifest_path.exists():
         print(f"po run: no pixel-office.json in {args.dir} — run `po new` first.", file=sys.stderr)
@@ -194,22 +191,45 @@ def _cmd_run(args) -> int:
     except (OSError, ValueError) as e:
         print(f"po run: can't read {manifest_path}: {e}", file=sys.stderr)
         return 1
+    try:
+        import uvicorn  # noqa: F401
+        from .server import create_app  # noqa: F401
+    except ImportError:
+        print('po run needs the web extra: pip install "pixel-office[web]"', file=sys.stderr)
+        return 1
+    from .company.factory import build_company
+
     company = build_company(manifest, host_id=args.host_id)
-    run_mode = "live" if args.live else "demo" if args.demo else "dormant"
-    app = create_app(sources=[], company=company, host_id=args.host_id, run_mode=run_mode)
+    return _serve_company(company, port=args.port, host_id=args.host_id,
+                          live=args.live, demo=args.demo)
+
+
+def _serve_company(company, *, port: int, host_id: str, live: bool = False,
+                   demo: bool = False) -> int:
+    """Serve one company as a live office (shared by `po run` and `po demo`)."""
+    try:
+        import uvicorn
+
+        from .server import create_app
+    except ImportError:
+        print('this needs the web extra: pip install "pixel-office[web]"', file=sys.stderr)
+        return 1
+    run_mode = "live" if live else "demo" if demo else "dormant"
+    app = create_app(sources=[], company=company, host_id=host_id, run_mode=run_mode)
     company.runtime.sink = app.state.hub.ingest
     banner = f"{company.name} · {len(company.team)} employees · mode {company.mode.drive}"
-    if args.live:
+    if live:
         # REAL employees: activate installed CLIs to do actual work. This SPENDS
         # TOKENS. Employees stay dormant until assigned work — no auto-run here.
         from .company.cli_invoke import make_subprocess_invoke
         from .company.executor_cli import CLIExecutor
         company.runtime.executor = CLIExecutor(invoke_fn=make_subprocess_invoke(),
-                                               memories=company.runtime.memories)
+                                               memories=company.runtime.memories,
+                                               objective=company.okrs.objective)
         banner += " · LIVE (real CLI agents — spends tokens; dormant until assigned)"
-        print("po run --live: employees will use your real CLIs and SPEND TOKENS when assigned work.",
+        print("live: employees will use your real CLIs and SPEND TOKENS when assigned work.",
               file=sys.stderr)
-    elif args.demo:
+    elif demo:
         # DEMO: the deterministic executor SIMULATES work (no real LLM, 0 tokens)
         # so you can see the office move. This is explicitly not real work.
         from .company.runtime import Task
@@ -219,32 +239,33 @@ def _cmd_run(args) -> int:
         banner += " · DEMO (simulated activity, no real work)"
     else:
         banner += " · employees dormant until given real work (--demo to simulate)"
-    # autonomy: the company runs itself toward the goal on a background tick
-    # (only in demo/live — dormant default stays idle). Uses the hub lock for
-    # thread-safe ingest.
+    # autonomy: the company runs itself toward the goal on a background tick (only in
+    # demo/live). In demo the cadences are lively so meetings/ideas are visible fast.
     stop = None
     thread = None
-    if args.demo or args.live:
+    if demo or live:
         import threading
         import time as _time
 
         from .company.autonomy import AutonomyLoop, planner_for
         loop = AutonomyLoop(company, planner_fn=planner_for(company), max_dispatch=2,
-                            review_every_s=30, radar_every_s=60, hr_every_s=90)
+                            review_every_s=(30 if demo else 3600),
+                            radar_every_s=(60 if demo else 6 * 3600),
+                            hr_every_s=(90 if demo else 12 * 3600),
+                            meeting_every_s=(40 if demo else 4 * 3600),
+                            initiative_every_s=(25 if demo else 6 * 3600),
+                            metrics_every_s=(20 if demo else 300))
         stop = threading.Event()
         interval = 6.0
-
-        demo = args.demo   # DEMO simulates KR metrics landing so the goal visibly
-                           # grows; --live never fabricates progress (real metrics only)
 
         def _autonomy():
             while not stop.wait(interval):
                 try:
                     loop.tick(_time.monotonic())
-                    if demo:
-                        with company._lock:
+                    if demo:                     # simulate KR metrics landing so the
+                        with company._lock:      # goal visibly grows (labelled 'simulated')
                             for kr in company.okrs.key_results:
-                                if kr.current < kr.target:  # nudge toward target (simulated)
+                                if kr.current < kr.target:
                                     step = max(1.0, kr.target * 0.05)
                                     company.okrs.update(kr.id, min(kr.target, kr.current + step))
                 except Exception:
@@ -252,15 +273,41 @@ def _cmd_run(args) -> int:
         thread = threading.Thread(target=_autonomy, name="po-autonomy", daemon=True)
         thread.start()
         banner += " · autonomy running"
-    print(f"pixel office → http://127.0.0.1:{args.port}   ({banner})")
+    print(f"pixel office → http://127.0.0.1:{port}   ({banner})")
     try:
-        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
     finally:
         if stop is not None:
             stop.set()
         if thread is not None:
             thread.join(timeout=interval + 5)  # let an in-flight tick finish cleanly
     return 0
+
+
+# a canned sample company so `po demo` shows a living AI company with zero setup
+SAMPLE_MANIFEST = {
+    "name": "Acme AI", "what": "an AI-run SaaS", "goal": "reach 1000 weekly signups",
+    "stack": "chat-product", "mode": "Autopilot",
+    "roles": [{"title": "Project Owner"}, {"title": "Architecture Engineer"},
+              {"title": "Backend Engineer"}, {"title": "Frontend Engineer"},
+              {"title": "Growth Marketer"}, {"title": "Content Writer"}, {"title": "QA Engineer"}],
+    "key_results": [{"text": "ship 5 features weekly", "target": 5, "cadence": "weekly"},
+                    {"text": "reach 1000 signups monthly", "target": 1000, "cadence": "monthly",
+                     "metric": "signups"},
+                    {"text": "publish 10 posts weekly", "target": 10, "cadence": "weekly"}],
+}
+
+
+def _cmd_demo(args) -> int:
+    try:
+        import uvicorn  # noqa: F401
+    except ImportError:
+        print('po demo needs the web extra: pip install "pixel-office[web]"', file=sys.stderr)
+        return 1
+    from .company.factory import build_company
+    company = build_company(SAMPLE_MANIFEST, host_id=args.host_id)
+    print("po demo: a sample AI company running itself — simulated, zero tokens, no setup.")
+    return _serve_company(company, port=args.port, host_id=args.host_id, demo=True)
 
 
 def _cmd_hooks(args) -> int:

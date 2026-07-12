@@ -56,6 +56,43 @@ def test_error_summary_never_leaks_prompt():
     assert "TOPSECRET" not in r.summary and "secret" not in r.summary
 
 
+def test_refusal_or_failure_text_is_not_counted_as_success():
+    # honesty: a CLI that PRODUCES TEXT but refused/failed must NOT advance work.
+    for reply in ["BLOCKED: no write permission", "I cannot modify that file",
+                  "permission denied", "failed to run the tests", "실패했습니다",
+                  "권한이 없어 수정할 수 없습니다", "Sorry, I'm unable to do this"]:
+        r = CLIExecutor(invoke_fn=lambda c, p, _r=reply: _r)(Employee("e", "eng"), Task("x", dri="e"))
+        assert r.ok is False, f"{reply!r} should be blocked, not success"
+
+
+def test_refusal_markers_are_precise_not_overbroad():
+    ex = lambda reply: CLIExecutor(invoke_fn=lambda c, p, _r=reply: _r)(Employee("e", "eng"), Task("x", dri="e"))
+    # embedded Korean failure ("작업이 실패했습니다") is caught even when not at the start
+    assert ex("작업이 실패했습니다").ok is False
+    # but a genuine success that merely contains the words "read-only" is NOT blocked
+    assert ex("implemented read-only mode and all tests pass").ok is True
+    # "done" must be the WORD, not a prefix of another word
+    assert ex("donefoo is now wired up").ok is True            # success (no refusal markers)
+    assert ex("DONE").summary == "" or ex("DONE").ok is True   # bare DONE verdict → success
+
+
+def test_done_verdict_is_success_and_prefix_stripped():
+    r = CLIExecutor(invoke_fn=lambda c, p: "DONE: shipped the endpoint")(Employee("e", "eng"), Task("x", dri="e"))
+    assert r.ok is True and r.summary == "shipped the endpoint"   # verdict prefix removed
+
+
+def test_plain_success_text_without_a_verdict_still_passes():
+    # backward-compatible: a normal result line with no refusal markers is success
+    r = CLIExecutor(invoke_fn=lambda c, p: "added the migration and tests pass")(Employee("e", "eng"), Task("x", dri="e"))
+    assert r.ok is True
+
+
+def test_objective_grounds_the_prompt_when_set():
+    ex = CLIExecutor(invoke_fn=lambda c, p: "ok", objective="reach 1000 paying users")
+    p = ex.build_prompt(Employee("e", "engineer"), Task("ship", dri="e", task_class="backend"))
+    assert "reach 1000 paying users" in p and "mission" in p.lower()
+
+
 def test_e2e_runtime_with_cli_executor_mock():
     # the executor is a drop-in for OrgRuntime; a mock proves the full path with 0 tokens
     calls = []

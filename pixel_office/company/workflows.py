@@ -53,6 +53,11 @@ class WorkflowRun:
     step_index: int = 0
     done: bool = False
     blocked: bool = False   # last step failed → halt until company.clear_workflow(kr_id)
+    retries: int = 0        # auto-retries spent on the current blocked step (bounded)
+    abandoned: bool = False  # exceeded the retry budget → stop retrying (no infinite token burn)
+
+
+MAX_RETRIES = 3   # a step that fails this many times is abandoned, not retried forever
 
 
 def _wf(id, title, steps) -> Workflow:

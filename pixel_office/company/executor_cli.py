@@ -35,13 +35,46 @@ def _clip(s, n: int) -> str:
     return " ".join(str(s or "").split())[:n]
 
 
+# Refusal / failure signatures. A CLI agent that says "I can't", "permission
+# denied", or "실패했습니다" produced text, but NOT a completed task — counting
+# that as success would silently advance a workflow on a non-result (honesty
+# gap). Matched at the START of the reply (or as an unambiguous embedded phrase)
+# so a genuine success that merely mentions "error handling" isn't misread.
+_BLOCKED_PREFIXES = (
+    "blocked", "failed", "error", "cannot", "can't", "unable", "i cannot",
+    "i can't", "i'm unable", "denied", "permission", "sorry", "no invoke",
+    "not able", "couldn't", "could not", "못", "실패", "불가", "거부", "죄송",
+)
+_BLOCKED_PHRASES = (
+    "permission denied", "access denied", "sandbox", "권한이 없", "실패했",
+    "하지 못", "할 수 없", "불가능",
+)
+
+
+def _is_done_verdict(low: str) -> bool:
+    # the WORD "done" (or Korean 완료), not a prefix of another word ("donefoo")
+    return (low[:4] == "done" and (len(low) <= 4 or not low[4].isalnum())) or low.startswith("완료")
+
+
+def _looks_blocked(text: str) -> bool:
+    low = text.lstrip().lower()
+    if _is_done_verdict(low):
+        return False   # explicit success verdict wins
+    if low.startswith(_BLOCKED_PREFIXES):
+        return True
+    head = low[:160]
+    return any(p in head for p in _BLOCKED_PHRASES)
+
+
 class CLIExecutor:
     def __init__(self, *, invoke_fn: Optional[InvokeFn] = None,
                  memories: Optional[Dict[str, EmployeeMemory]] = None,
-                 tier_cli: Optional[Dict[str, str]] = None):
+                 tier_cli: Optional[Dict[str, str]] = None,
+                 objective: str = ""):
         self.invoke_fn = invoke_fn
         self.memories = memories if memories is not None else {}
         self.tier_cli = tier_cli or dict(DEFAULT_TIER_CLI)
+        self.objective = objective   # company mission — grounds every activation
 
     def pick_cli(self, employee: Employee) -> str:
         return self.tier_cli.get(employee.tier, self.tier_cli.get("cheap", "grok"))
@@ -53,6 +86,8 @@ class CLIExecutor:
         from the work (the focus is observed, not declared), staying honest."""
         from . import creativity as _creativity, roles as _roles
         lines = [f"You are the {_clip(employee.title, 80)}."]
+        if self.objective:                          # mission grounding — every activation
+            lines.append("Company mission: " + _clip(self.objective, 140))
         if employee.persona:
             lines.append(_clip(employee.persona, MAX_PERSONA))
         if employee.skills:
@@ -70,7 +105,7 @@ class CLIExecutor:
                 lines.append("Explore one option per lens (" + _clip(", ".join(lenses), 100)
                              + "); mark unproven claims as assumptions.")
         lines.append("Task: " + _clip(task.title, MAX_TASK))
-        lines.append("Do it. Reply with a one-line result.")
+        lines.append("Do it. Reply `DONE: <result>` if completed, else `BLOCKED: <reason>`.")
         return "\n".join(lines)
 
     def __call__(self, employee: Employee, task: Task) -> TaskResult:
@@ -87,4 +122,10 @@ class CLIExecutor:
             return TaskResult(task.id, employee.id, ok=False, summary=f"error: {type(e).__name__}")
         if not text:
             return TaskResult(task.id, employee.id, ok=False, summary="empty response")
-        return TaskResult(task.id, employee.id, ok=True, summary=text[:MAX_OUTPUT_CHARS])
+        if _looks_blocked(text):
+            # produced text, but it's a refusal/failure — NOT a completed task.
+            # Honest: this must not advance a workflow or credit competency.
+            return TaskResult(task.id, employee.id, ok=False, summary="blocked: " + text[:MAX_OUTPUT_CHARS])
+        # strip a leading DONE verdict so the summary is just the result
+        summary = text[4:].lstrip(": ").strip() if _is_done_verdict(text.lstrip().lower()) else text
+        return TaskResult(task.id, employee.id, ok=True, summary=(summary or text)[:MAX_OUTPUT_CHARS])

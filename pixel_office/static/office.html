@@ -59,6 +59,15 @@
   #modal button.primary{background:#3a5b9a;border-color:#4a6fb5;color:#fff}
   #modal button.ghost{background:transparent}
   #modal .prev{display:flex;align-items:center;gap:10px;margin-top:10px}#modal canvas{background:#0f1119;border-radius:6px;image-rendering:pixelated}
+  /* ── employee profile card ── */
+  #profile{position:fixed;inset:0;background:rgba(6,7,11,.72);display:none;align-items:center;justify-content:center;z-index:30}
+  #profile.open{display:flex}
+  #profile .box{background:#161923;border:1px solid #2a2f3c;border-radius:12px;padding:18px 20px;width:340px;max-width:92vw}
+  #profile h2{font-size:15px;margin-bottom:3px}#profile .sub{color:#8a90a6;font-size:11px;margin-bottom:10px}
+  #profile .prow{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;color:#b9c0d4;border-bottom:1px solid #1c2030}
+  #profile .prow b{color:#e6e6f0}#profile h3{font-size:10px;letter-spacing:1px;color:#8a90a6;text-transform:uppercase;margin:12px 0 4px}
+  #profile .foot{display:flex;justify-content:flex-end;margin-top:16px}
+  #profile button{background:#3a5b9a;color:#fff;border:1px solid #4a6fb5;border-radius:7px;padding:7px 16px;font:inherit;font-size:12px;cursor:pointer}
   /* responsive: bigger HUD + hide the tip on a phone-sized screen */
   @media (max-width:600px){ #hud{font-size:13px;gap:8px;flex-wrap:wrap} #tip{display:none} }
 </style></head>
@@ -94,6 +103,11 @@
   <div class="foot"><button class="ghost" id="m_reset" data-i18n="reset">Reset</button>
     <span><button id="m_cancel" data-i18n="cancel">Cancel</button> <button class="primary" id="m_save" data-i18n="save">Save</button></span></div>
 </div></div>
+<div id="profile" role="dialog" aria-modal="true"><div class="box">
+  <h2 id="pf_title">Employee</h2><div class="sub" id="pf_sub"></div>
+  <div id="pf_body"></div>
+  <div class="foot"><button id="pf_close" data-i18n="close">Close</button></div>
+</div></div>
 <script>
 // PWA: register the service worker (shell + last snapshot cached for offline).
 if('serviceWorker' in navigator){try{navigator.serviceWorker.register('/sw.js');}catch(e){}}
@@ -125,7 +139,12 @@ const STR={
     reset:'Reset',cancel:'Cancel',save:'Save',roomSuffix:' ROOM',meetingRoom:'MEETING ROOM',entrance:'ENTRANCE',
     empty:'no agents yet — run one of your AI CLIs and watch them walk in through the entrance.',
     roster:'Team',workflowsHead:'Workflows',step:'step',noWork:'no active workflow',learning:'learning',
-    creative:'creative',focus:'focus',activityHead:'Activity feed',simulated:'simulated',
+    creative:'creative',focus:'focus',activityHead:'Activity feed',simulated:'simulated',close:'Close',
+    tip_demo:'a SIMULATED demo company — deterministic activity, no real work or tokens.',
+    tip_live:'every avatar is a real employee running your CLIs on real work (spends tokens).',
+    tip_dormant:'your company is idle — assign it work, or run `po run --demo` to watch it move.',
+    empty_dormant:'company is idle — run `po run --demo` to watch it work, or assign a task.',
+    empty_demo:'warming up the demo company — avatars are walking in through the entrance.',
     act_working:'working',act_waiting:'needs you',act_blocked:'blocked',act_done:'wrapped up',act_walk:'walking in',act_idle:'idle'},
   ko:{connecting:'연결 중…',live:'라이브',offline:'오프라인',team:'직원',working:'작업',waiting:'대기',
     blocked:'막힘',wrapped:'완료',tip:'모든 아바타는 실제 CLI 세션입니다 — 문으로 팀 방에 들어가고, 말풍선에 지금 하는 일이 실시간 텔레메트리로 표시됩니다.',
@@ -136,9 +155,22 @@ const STR={
     reset:'초기화',cancel:'취소',save:'저장',roomSuffix:' 룸',meetingRoom:'회의실',entrance:'입구',
     empty:'아직 에이전트가 없습니다 — AI CLI를 하나 실행하면 입구로 걸어 들어옵니다.',
     roster:'팀',workflowsHead:'워크플로',step:'단계',noWork:'진행 중 워크플로 없음',learning:'학습중',
-    creative:'창의',focus:'주력',activityHead:'활동 피드',simulated:'시뮬레이션',
+    creative:'창의',focus:'주력',activityHead:'활동 피드',simulated:'시뮬레이션',close:'닫기',
+    tip_demo:'시뮬레이션 데모 회사입니다 — 결정론적 활동이며 실제 작업·토큰 소모가 없습니다.',
+    tip_live:'모든 아바타는 실제 직원으로, 당신의 CLI로 진짜 작업을 수행합니다(토큰 소모).',
+    tip_dormant:'회사가 유휴 상태입니다 — 작업을 배정하거나 `po run --demo`로 움직이는 모습을 보세요.',
+    empty_dormant:'회사가 유휴 상태입니다 — `po run --demo`로 작동을 보거나 작업을 배정하세요.',
+    empty_demo:'데모 회사를 준비 중입니다 — 아바타들이 입구로 걸어 들어옵니다.',
     act_working:'작업 중',act_waiting:'확인 필요',act_blocked:'막힘',act_done:'완료',act_walk:'들어오는 중',act_idle:'유휴'}};
 function t(k){return (STR[LANG]&&STR[LANG][k])||STR.en[k]||k;}
+// run mode (watch|demo|live|dormant) drives an HONEST tip + empty-state message so a
+// demo floor never claims to be "real CLI sessions" and an idle company points you at
+// `po run --demo` instead of "run a CLI". Defaults to watch until /api/meta answers.
+let RUN_MODE='watch', EMPTY_KEY='empty';
+function applyRunMode(m){RUN_MODE=m||'watch';
+  const tipKey=RUN_MODE==='demo'?'tip_demo':RUN_MODE==='live'?'tip_live':RUN_MODE==='dormant'?'tip_dormant':'tip';
+  const te=document.getElementById('tip');if(te){te.dataset.i18n=tipKey;te.textContent=t(tipKey);}
+  EMPTY_KEY=RUN_MODE==='dormant'?'empty_dormant':RUN_MODE==='demo'?'empty_demo':'empty';}
 function applyI18n(){document.documentElement.lang=LANG;
   document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n);});}
 function actText(act,moving){return moving?t('act_walk'):(t('act_'+act)|| act || t('act_idle'));}
@@ -356,7 +388,7 @@ function frame(now){const tm=now/1000;   // tm = time (t is the translation fn �
   for(const id of [...AG.keys()]){const a=AG.get(id);if(a.gone&&(!a.path||!a.path.length))AG.delete(id);}
   [...AG.values()].sort((p,q)=>p.py-q.py).forEach(a=>drawPerson(a,tm));
   if(![...AG.values()].some(a=>!a.gone)){g.fillStyle='#6c7086';g.font='13px ui-monospace,monospace';g.textAlign='center';
-    g.fillText(t('empty'),W/2,H*0.33);g.textAlign='left';}
+    g.fillText(t(EMPTY_KEY),W/2,H*0.33);g.textAlign='left';}
   requestAnimationFrame(frame);
 }
 // ── decoration ──────────────────────────────────────────────────────────────
@@ -424,7 +456,23 @@ setInterval(pollCompany,5000);pollCompany();
 let editId=null, draft={};
 function findAgent(id){for(const a of AG.values())if(!a.gone&&idOf(a.row)===id)return a;return null;}
 function avatarAt(x,y){let best=null,bd=20;for(const a of AG.values()){if(a.gone||!a._hit)continue;const d=Math.hypot(a._hit.x-x,a._hit.y-y);if(d<bd){bd=d;best=a;}}return best;}
-cv.addEventListener('click',e=>{const a=avatarAt(e.clientX,e.clientY);if(a)openModal(a._hit.id);});
+cv.addEventListener('click',e=>{const a=avatarAt(e.clientX,e.clientY);if(!a)return;const r=a.row;
+  if(r.cli==='company'&&ROSTER[r.agent_id])openProfile(ROSTER[r.agent_id]);   // company employee → profile card
+  else openModal(a._hit.id);});                                               // CLI session → customize looks
+function openProfile(e){
+  $('pf_title').textContent=e.title||e.id;
+  $('pf_sub').textContent=[e.role,e.dept,e.tier].filter(Boolean).join(' · ')+(e.creative?' · ✦ '+t('creative'):'');
+  const prof=e.proficiency||{};
+  let h='<h3>'+t('skills')+'</h3>'+((e.skills||[]).map(s=>{const p=prof[s];
+    const lv=(p==null)?`<span class="muted">${t('learning')}</span>`:`<b>${Math.round(p*100)}%</b>`;
+    return `<div class="prow"><span>${esc(s)}</span>${lv}</div>`;}).join('')||`<div class="muted">—</div>`);
+  if(e.style)h+=`<h3>${t('focus')}</h3><div class="prow"><span>${esc(e.style)}</span><b>✓</b></div>`;
+  if((e.workflows||[]).length)h+='<h3>'+t('workflowsHead')+'</h3>'
+    +(e.workflows||[]).map(w=>`<div class="prow"><span>${esc(w)}</span></div>`).join('');
+  $('pf_body').innerHTML=h; $('profile').classList.add('open');
+}
+$('pf_close').onclick=()=>$('profile').classList.remove('open');
+$('profile').onclick=ev=>{if(ev.target.id==='profile')$('profile').classList.remove('open');};
 function swatchRow(el,colors,curFn,pick){el.innerHTML='';colors.forEach((c,i)=>{const b=document.createElement('div');
   b.className='sw'+(i===curFn()?' on':'');b.style.background=c;b.title=c;
   b.onclick=()=>{pick(i);[...el.children].forEach(x=>x.classList.remove('on'));b.classList.add('on');drawPrev();};el.appendChild(b);});}
@@ -441,7 +489,7 @@ function openModal(id){const a=findAgent(id);if(!a)return;editId=id;const c=LOOK
 function closeModal(){$('modal').classList.remove('open');editId=null;}
 $('m_cancel').onclick=closeModal;
 $('modal').onclick=e=>{if(e.target.id==='modal')closeModal();};
-addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();$('profile').classList.remove('open');}});
 $('m_save').onclick=()=>{if(!editId)return;LOOKS[editId]={name:(draft.name||'').trim()||undefined,skin:draft.skin,hair:draft.hair,shirt:SHIRTS[draft.shirt]};
   saveJSON('po:looks',LOOKS);closeModal();};
 $('m_reset').onclick=()=>{if(editId){delete LOOKS[editId];saveJSON('po:looks',LOOKS);}closeModal();};
@@ -459,7 +507,13 @@ function drawPrev(){const pc=$('m_prev').getContext('2d');pc.imageSmoothingEnabl
 try{const _last=loadJSON('po:last',null); if(Array.isArray(_last)&&_last.length)ingest(_last,true);}
 catch(e){try{localStorage.removeItem('po:last');}catch(_){}}
 applyI18n();
+// honest run-mode banner: ask the server what it's serving (watch/demo/live/dormant).
+// `?mode=` forces it (screenshots/offline); otherwise /api/meta is the source of truth.
+(function(){const forced=new URLSearchParams(location.search).get('mode');
+  if(forced){applyRunMode(forced);return;}
+  fetch('/api/meta').then(r=>r.json()).then(d=>applyRunMode(d&&d.run_mode)).catch(()=>{});})();
 if(location.search.includes('panel'))$('panel').classList.add('open');
 if(location.search.includes('modal'))setTimeout(()=>{const a=[...AG.values()].find(x=>!x.gone);if(a)openModal(idOf(a.row));},1800);
+if(location.search.includes('profile'))setTimeout(()=>{const e=Object.values(ROSTER)[0];if(e)openProfile(e);},2600);
 resize();connect();requestAnimationFrame(frame);
 </script></body></html>

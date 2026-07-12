@@ -95,6 +95,8 @@ class EmployeeMemory:
 
     def add_lesson(self, lesson: Lesson) -> Lesson:
         self.lessons.append(lesson)
+        if len(self.lessons) > MAX_LESSONS:      # bounded like the auto-derived path — a
+            del self.lessons[:-MAX_LESSONS]      # caller can't grow the list without limit
         return lesson
 
     # ---- retrieval + competency ---------------------------------------------
@@ -117,7 +119,8 @@ class EmployeeMemory:
     # ---- behavioral traits (evidence-based individuality, never declared) --------
 
     def observe(self, kind: str, value: str) -> Observation:
-        o = Observation(kind=str(kind), value=str(value))
+        # clip both fields — an unbounded kind/value string would defeat the list cap
+        o = Observation(kind=str(kind)[:40], value=str(value)[:80])
         self.observations.append(o)
         if len(self.observations) > MAX_OBSERVATIONS:   # bounded — recent behavior is what shapes the trait
             del self.observations[:-MAX_OBSERVATIONS]
@@ -133,8 +136,8 @@ class EmployeeMemory:
         person keeps doing → their 'focus'), or None below the sample floor —
         individuality that CREATES itself from the work, never a set label."""
         counts: Dict[str, int] = {}
-        for o in self.observations:
-            if o.kind == kind and o.value:
+        for o in list(self.observations):   # snapshot: a reader (roster) may run while the
+            if o.kind == kind and o.value:  # autonomy thread appends (dispatch is lock-free)
                 counts[o.value] = counts.get(o.value, 0) + 1
         if not counts:
             return None

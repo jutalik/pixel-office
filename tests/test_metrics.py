@@ -33,6 +33,37 @@ def test_fetch_metrics_flattens_numeric_leaves(monkeypatch):
     assert "channels" not in m           # nested dicts are skipped, only numeric leaves
 
 
+def test_conflicting_metric_across_endpoints_is_dropped_not_last_write(monkeypatch):
+    # two endpoints report the SAME name with DIFFERENT values → ambiguous → dropped,
+    # so okr.apply_metrics never trusts an arbitrary last-write.
+    payloads = {"/api/telemetry": {"users": 10, "requests": 5},
+                "/api/growth": {"users": 999}}
+
+    def fake(url, timeout=0):
+        for p, d in payloads.items():
+            if url.endswith(p):
+                return _R(d)
+        return _R({})
+
+    monkeypatch.setattr(metrics.urllib.request, "urlopen", fake)
+    m = metrics.fetch_metrics("http://x")
+    assert "users" not in m              # conflicting → dropped entirely
+    assert m["requests"] == 5.0          # non-conflicting names survive
+
+
+def test_same_value_across_endpoints_is_kept(monkeypatch):
+    payloads = {"/api/telemetry": {"users": 42}, "/api/growth": {"users": 42}}
+
+    def fake(url, timeout=0):
+        for p, d in payloads.items():
+            if url.endswith(p):
+                return _R(d)
+        return _R({})
+
+    monkeypatch.setattr(metrics.urllib.request, "urlopen", fake)
+    assert metrics.fetch_metrics("http://x")["users"] == 42.0   # agreement is fine
+
+
 def test_fetch_metrics_empty_url_is_noop():
     assert metrics.fetch_metrics("") == {}
 

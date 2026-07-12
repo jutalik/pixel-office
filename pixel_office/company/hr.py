@@ -38,8 +38,8 @@ def review(team: Team, memories: Dict[str, EmployeeMemory], *,
         mem = memories.get(emp.id)
         if mem is None:
             continue
-        for task_class, _stat in mem._stats.items():
-            score = mem.competency(task_class)     # None if insufficient evidence
+        for task_class, _stat in list(mem._stats.items()):   # snapshot — dispatch mutates
+            score = mem.competency(task_class)     # this concurrently (assign is lock-free)
             if score is not None and score < FIRE_THRESHOLD:
                 recs.append(Recommendation(
                     kind="fire", target=emp.id,
@@ -54,7 +54,7 @@ def review(team: Team, memories: Dict[str, EmployeeMemory], *,
     for emp_id, mem in memories.items():
         if emp_id not in current:
             continue   # a former employee's record must not sway current hiring
-        for task_class, st in mem._stats.items():
+        for task_class, st in list(mem._stats.items()):   # snapshot (see above)
             class_fail[task_class] = class_fail.get(task_class, 0) + (st.n - st.ok)
             score = mem.competency(task_class)
             if score is not None and score >= FIRE_THRESHOLD:
