@@ -1,677 +1,434 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; manifest-src 'self';">
-<meta name="theme-color" content="#14141f">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon.svg">
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; manifest-src 'self';">
 <title>pixel office</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#14141f">
+<link rel="icon" href="/icon.svg">
 <style>
-  :root { --bg:#14141f; --floor:#191926; --room:#1e1e2e; --ink:#cdd6f4; --dim:#6c7086; --line:#2a2a3c;
-          --working:#a6e3a1; --waiting:#f9e2af; --blocked:#f38ba8; --done:#89b4fa; --panel:#181825; }
-  * { box-sizing:border-box; }
-  html,body { margin:0; height:100%; }
-  body { font-family:ui-monospace,Menlo,Consolas,monospace; background:var(--bg); color:var(--ink);
-         display:flex; flex-direction:column; overflow:hidden; }
-  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; gap:12px;
-           align-items:center; flex:0 0 auto; }
-  h1 { font-size:14px; margin:0; letter-spacing:1px; }
-  #conn { font-size:11px; color:var(--dim); }
-  #conn.stale { color:var(--waiting); } #conn.offline { color:var(--blocked); }
-  .mode-badge { font-size:10px; letter-spacing:.5px; padding:2px 7px; border-radius:10px; border:1px solid var(--line); }
-  .mode-badge.demo { color:var(--waiting); border-color:#f9e2af66; background:#f9e2af14; }
-  .mode-badge.live { color:var(--working); border-color:#a6e3a166; background:#a6e3a114; }
-  .mode-badge.dormant, .mode-badge.watch { color:var(--dim); }
-  .grow { flex:1 1 auto; }
-  button { font-family:inherit; font-size:11px; background:#313244; color:var(--ink); border:1px solid var(--line);
-           border-radius:4px; padding:5px 9px; cursor:pointer; }
-  button:hover { background:#45475a; } button[aria-pressed="true"] { background:#585b70; }
-  #banner { display:none; background:#f9e2af22; color:#f9e2af; font-size:11px; padding:6px 16px;
-            border-bottom:1px solid #f9e2af44; } #banner.show { display:block; }
-  main { flex:1 1 auto; display:flex; min-height:0; }
-  #floor { flex:1 1 auto; padding:16px; display:grid; gap:14px; overflow:auto;
-           grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); align-content:start;
-           background:repeating-linear-gradient(0deg,var(--floor),var(--floor) 23px,#1b1b28 23px,#1b1b28 24px),
-                      repeating-linear-gradient(90deg,var(--floor),var(--floor) 23px,#1b1b28 23px,#1b1b28 24px); }
-  .room { position:relative; background:var(--room); border:2px solid var(--line); border-radius:6px;
-          min-height:160px; box-shadow:3px 3px 0 #0006; padding:8px; }
-  .room > .rlabel { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--dim);
-                    display:flex; justify-content:space-between; }
-  .room > .rlabel span[contenteditable="true"] { outline:1px dashed var(--dim); padding:0 3px; border-radius:2px; }
-  .room.meeting { border-color:#cba6f7; } .room.meeting .rlabel { color:#cba6f7; }
-  .stage { position:relative; height:120px; margin-top:6px; }
-  .avatar { position:absolute; width:52px; text-align:center; transition:left .5s ease, top .5s ease, opacity .3s;
-            image-rendering:pixelated; cursor:pointer; }
-  .avatar:focus { outline:2px solid var(--done); border-radius:4px; }
-  /* face = a unique procedural pixel character (identity); status shows on the ring */
-  .face { line-height:1; color:var(--ink); } .face svg { width:28px; height:28px; display:block; margin:0 auto; }
-  .pixchar { image-rendering:pixelated; } .face .pixchar { width:34px; height:34px; }
-  /* Lucide inline icons (no emoji) — inherit color via currentColor */
-  .ico { width:14px; height:14px; display:inline-block; vertical-align:-2px; flex:0 0 auto; }
-  h2 .ico { width:13px; height:13px; vertical-align:-1px; margin-right:6px; }
-  button .ico { margin-right:5px; } .card .ico, .okr .ico, .readonly .ico { margin-right:5px; }
-  .nm { font-size:9px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .ring { height:3px; border-radius:2px; margin-top:2px; background:var(--dim); }
-  .working .ring{background:var(--working)} .waiting .ring{background:var(--waiting)}
-  .blocked .ring{background:var(--blocked)} .done .ring{background:var(--done)}
-  .stale .face,.disconnected .face { filter:grayscale(1); opacity:.45; }
-  .bubble { position:absolute; bottom:100%; left:50%; transform:translateX(-50%); background:#313244;
-            color:var(--ink); font-size:9px; padding:2px 6px; border-radius:4px; white-space:nowrap;
-            margin-bottom:3px; opacity:0; transition:opacity .3s; pointer-events:none; max-width:120px;
-            overflow:hidden; text-overflow:ellipsis; } .avatar.say .bubble { opacity:1; }
-  .gate { color:var(--dim); font-size:10px; border:1px dashed var(--line); border-radius:4px; padding:6px 8px;
-          text-align:center; margin-top:6px; }
-  #empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:12px; }
-  /* CEO panel */
-  #ceo { width:300px; flex:0 0 auto; background:var(--panel); border-left:1px solid var(--line); overflow:auto;
-         padding:14px; font-size:12px; } #ceo.hidden { display:none; }
-  #ceo h2 { font-size:12px; letter-spacing:1px; margin:0 0 8px; color:var(--dim); text-transform:uppercase; }
-  .glance { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
-  .stat { background:#1e1e2e; border:1px solid var(--line); border-radius:4px; padding:6px 10px; min-width:64px; }
-  .stat b { display:block; font-size:18px; } .stat.working b{color:var(--working)} .stat.waiting b{color:var(--waiting)}
-  .stat.blocked b{color:var(--blocked)} .stat.done b{color:var(--done)}
-  .needs { list-style:none; margin:0 0 14px; padding:0; }
-  .needs li { display:flex; gap:8px; align-items:center; padding:7px 8px; border:1px solid var(--line);
-              border-radius:4px; margin-bottom:6px; cursor:pointer; }
-  .needs li.waiting{border-color:#f9e2af55} .needs li.blocked{border-color:#f38ba855} .needs li.disconnected{border-color:#6c708655}
-  .needs .why { font-size:10px; color:var(--dim); }
-  .needs .face { line-height:0; } .needs .ico { width:18px; height:18px; }
-  .needs .none { color:var(--dim); border:none; cursor:default; }
-  .locked { opacity:.7; }
-  .okr { margin:6px 0; font-size:11px; } .okr .bar { height:6px; background:#313244; border-radius:3px; overflow:hidden; margin-top:3px; }
-  .okr .bar > i { display:block; height:100%; background:var(--working); }
-  .card { border:1px solid #f9e2af55; border-radius:5px; padding:8px; margin:6px 0; font-size:11px; }
-  .card.oneway { border-color:#f38ba855; } .card .rec { color:var(--dim); margin-top:3px; }
-  .card details { margin-top:4px; } .card summary { cursor:pointer; color:var(--dim); font-size:10px; }
-  .card .btns { display:flex; gap:6px; margin-top:6px; }
-  .mode-chip { font-size:10px; color:var(--dim); margin-bottom:8px; }
-  .diag { margin-top:14px; padding-top:10px; border-top:1px solid var(--line); font-size:10px; color:var(--dim); line-height:1.7; }
-  .diag .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; background:var(--dim); }
-  .diag .dot.live{background:var(--working)} .diag .dot.stale{background:var(--waiting)} .diag .dot.offline{background:var(--blocked)}
-  .diag code { color:var(--ink); background:#1e1e2e; padding:1px 4px; border-radius:3px; }
-  .diag .err { color:var(--blocked); }
-  /* detail / customize / chat sheet */
-  #sheet { position:fixed; right:0; top:0; bottom:0; width:min(340px,90vw); background:var(--panel);
-           border-left:2px solid var(--line); box-shadow:-4px 0 20px #0008; transform:translateX(100%);
-           transition:transform .25s ease; padding:18px; z-index:10; overflow:auto; } #sheet.open{transform:translateX(0)}
-  #sheet h2 { font-size:13px; margin:0 0 10px; }
-  #sheet .close { position:absolute; top:12px; right:14px; background:none; border:none; color:var(--dim); font-size:16px; }
-  #sheet dl { display:grid; grid-template-columns:auto 1fr; gap:5px 10px; font-size:12px; margin:0 0 14px; }
-  #sheet dt { color:var(--dim); } #sheet dd { margin:0; word-break:break-all; }
-  .field { margin:10px 0; } .field label { display:block; font-size:10px; color:var(--dim); margin-bottom:4px; }
-  .field input, .field textarea { width:100%; background:#1e1e2e; color:var(--ink); border:1px solid var(--line);
-           border-radius:4px; padding:6px; font-family:inherit; font-size:12px; }
-  .sprites { display:flex; flex-wrap:wrap; gap:6px; } .sprites button { padding:4px; line-height:0; }
-  .sprites .ico { width:20px; height:20px; margin:0; } .sprites .pixchar { width:26px; height:26px; }
-  .sprites button[aria-pressed="true"]{ outline:2px solid var(--done); }
-  .swatches { display:flex; gap:6px; } .swatches button { width:22px; height:22px; border-radius:50%; padding:0; }
-  .msg-state { font-size:10px; color:var(--dim); margin-top:6px; }
-  .readonly { margin-top:14px; font-size:10px; color:var(--dim); }
-  @media (prefers-reduced-motion: no-preference){
-    /* restrained, activity-distinct motion (only for live avatars) */
-    .working:not(.stale):not(.disconnected) .face{ animation:bob 1.3s ease-in-out infinite; }
-    .waiting:not(.stale):not(.disconnected) .face{ animation:wave 1.1s ease-in-out infinite; transform-origin:50% 90%; }
-    .blocked:not(.stale):not(.disconnected) .face{ animation:shake .5s ease-in-out infinite; }
-    .avatar.say .bubble{ animation:pulse 1.6s ease-in-out infinite; }
-    @keyframes bob{50%{transform:translateY(-3px)}}
-    @keyframes wave{50%{transform:rotate(-12deg)}}
-    @keyframes shake{25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}
-    @keyframes pulse{50%{opacity:.55}}
-  }
-  @media (max-width:720px){ #ceo{ position:fixed; right:0; top:0; bottom:0; z-index:9; box-shadow:-4px 0 20px #0008; }
-                            #floor{ grid-template-columns:1fr; } }
-  @media (max-width:600px){ .avatar{ width:60px } .face{ font-size:32px } }
-</style>
-</head>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#0c0d12;overflow:hidden;font-family:ui-monospace,Menlo,Consolas,monospace;color:#cdd6f4}
+  #c{image-rendering:pixelated;display:block}
+  #hud{position:fixed;top:10px;left:12px;display:flex;align-items:center;gap:12px;font-size:12px;
+       background:rgba(16,18,26,.82);border:1px solid #2a2f3c;border-radius:8px;padding:7px 12px;pointer-events:none}
+  #hud b{color:#e6e6f0;letter-spacing:1px}
+  #hud .dot{width:8px;height:8px;border-radius:50%;background:#f38ba8;display:inline-block;margin-right:5px}
+  #hud .dot.live{background:#a6e3a1}
+  #hud .s{color:#8a90a6}#hud .s b{color:#cdd6f4;font-weight:700}
+  #tip{position:fixed;bottom:10px;left:12px;font-size:11px;color:#6c7086;background:rgba(16,18,26,.7);
+       border-radius:6px;padding:4px 9px}
+  #off{position:fixed;top:10px;right:220px;font-size:11px;color:#f9e2af;background:rgba(40,32,10,.85);
+       border:1px solid #6b5b2a;border-radius:6px;padding:5px 10px;display:none}
+  #off.show{display:block}
+  /* ── CEO side panel ── */
+  #panelBtn{position:fixed;top:10px;right:12px;z-index:20;background:rgba(20,20,31,.9);color:#cdd6f4;
+       border:1px solid #2a2f3c;border-radius:8px;padding:7px 11px;font:inherit;font-size:12px;cursor:pointer}
+  #panelBtn:hover{background:#20232e}
+  #panel{position:fixed;top:0;right:0;height:100%;width:270px;background:rgba(14,15,22,.96);
+       border-left:1px solid #262a37;padding:52px 14px 14px;overflow:auto;transform:translateX(100%);
+       transition:transform .22s ease;z-index:15}
+  #panel.open{transform:none}
+  #panel h3{font-size:11px;letter-spacing:1px;color:#8a90a6;text-transform:uppercase;margin:14px 0 6px}
+  #panel .card{background:#171a24;border:1px solid #242836;border-radius:8px;padding:9px 11px;margin-bottom:7px}
+  #panel .big{font-size:22px;font-weight:700}
+  #panel .row{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:#b9c0d4}
+  #panel .row b{color:#e6e6f0}
+  #panel .muted{color:#6c7086;font-size:11px;line-height:1.5}
+  .swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  #panel .rrow{padding:5px 0;border-bottom:1px solid #1c2030}
+  #panel .rrow b{font-size:12px;color:#e6e6f0}
+  .pill{display:inline-block;background:#232838;border:1px solid #313a4f;border-radius:10px;padding:1px 6px;margin:2px 2px 0 0;font-size:10px;color:#b9c0d4}
+  /* ── customization modal ── */
+  #modal{position:fixed;inset:0;background:rgba(6,7,11,.72);display:none;align-items:center;justify-content:center;z-index:30}
+  #modal.open{display:flex}
+  #modal .box{background:#161923;border:1px solid #2a2f3c;border-radius:12px;padding:18px 20px;width:340px;max-width:92vw}
+  #modal h2{font-size:14px;margin-bottom:3px}#modal .sub{color:#8a90a6;font-size:11px;margin-bottom:12px}
+  #modal label{display:block;font-size:11px;color:#8a90a6;margin:9px 0 3px}
+  #modal input[type=text]{width:100%;background:#0f1119;border:1px solid #2a2f3c;border-radius:6px;color:#cdd6f4;padding:6px 8px;font:inherit}
+  #modal .opts{display:flex;gap:6px;flex-wrap:wrap}
+  #modal .sw{width:24px;height:24px;border-radius:5px;border:2px solid transparent;cursor:pointer}
+  #modal .sw.on{border-color:#cdd6f4}
+  #modal .foot{display:flex;justify-content:space-between;gap:8px;margin-top:16px}
+  #modal button{background:#2a2f3c;color:#e0e0e0;border:1px solid #3a3f4c;border-radius:7px;padding:7px 14px;font:inherit;font-size:12px;cursor:pointer}
+  #modal button.primary{background:#3a5b9a;border-color:#4a6fb5;color:#fff}
+  #modal button.ghost{background:transparent}
+  #modal .prev{display:flex;align-items:center;gap:10px;margin-top:10px}#modal canvas{background:#0f1119;border-radius:6px;image-rendering:pixelated}
+  /* responsive: bigger HUD + hide the tip on a phone-sized screen */
+  @media (max-width:600px){ #hud{font-size:13px;gap:8px;flex-wrap:wrap} #tip{display:none} }
+</style></head>
 <body>
-<header>
-  <h1>PIXEL OFFICE</h1><span id="conn">connecting…</span><span id="mode" class="mode-badge"></span><span class="grow"></span>
-  <button id="editBtn" aria-pressed="false" title="rearrange rooms / rename"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>edit</button>
-  <button id="ceoBtn" aria-pressed="true" title="CEO panel"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>CEO</button>
-</header>
-<div id="banner"></div>
-<main>
-  <div id="floor"><div id="empty">no agents yet — run one of your AI CLIs and watch them appear.</div></div>
-  <aside id="ceo">
-    <h2>Company at a glance</h2>
-    <div class="glance" id="glance"></div>
-    <h2>Needs you now</h2>
-    <ul class="needs" id="needs"></ul>
-    <h2>CEO desk</h2>
-    <div id="ceoDesk"></div>
-    <p class="readonly">Live company data (approvals, goals) lights up when the Company Layer is
-      running. Everything above the desk is real telemetry from your CLIs.</p>
-    <div id="diag" class="diag"></div>
-  </aside>
-</main>
-<aside id="sheet" hidden>
-  <button class="close" id="sheetClose" aria-label="close"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-  <h2 id="sheetTitle"></h2>
-  <dl id="sheetBody"></dl>
-  <div class="field"><label>Display name</label><input id="cName" maxlength="24"></div>
-  <div class="field"><label>Character</label><div class="sprites" id="cSprites"></div></div>
-  <div class="field"><label>Shirt color</label><div class="swatches" id="cSwatches"></div></div>
-  <div class="field"><label>Message this session</label>
-    <textarea id="cMsg" rows="3" placeholder="write a note…"></textarea>
-    <div style="display:flex;gap:6px;margin-top:6px"><button id="cQueue">Queue locally</button><button id="cCopy">Copy</button></div>
-    <div class="msg-state" id="cMsgState"></div>
-  </div>
-  <div class="readonly">Read-only monitor. Messages are queued locally — this session has NOT
-    received them (durable employee inboxes arrive with the Company Layer).</div>
+<canvas id="c"></canvas>
+<div id="hud"><b>PIXEL OFFICE</b><span><span class="dot" id="live"></span><span id="conn" data-i18n="connecting">connecting…</span></span>
+  <span class="s"><span data-i18n="team">team</span> <b id="n_team">0</b></span><span class="s"><span data-i18n="working">working</span> <b id="n_work">0</b></span>
+  <span class="s"><span data-i18n="waiting">waiting</span> <b id="n_wait">0</b></span><span class="s"><span data-i18n="blocked">blocked</span> <b id="n_block">0</b></span></div>
+<div id="tip" data-i18n="tip">every avatar is a real CLI session.</div>
+<div id="off" data-i18n="offbanner">offline — showing last-known state</div>
+<button id="panelBtn" aria-expanded="false">☰ CEO</button>
+<aside id="panel" aria-label="CEO panel">
+  <h3 data-i18n="glance">Company at a glance</h3>
+  <div class="card"><div class="big" id="p_team">0</div><div class="muted" data-i18n="onfloor">agents on the floor</div>
+    <div class="row"><span><span class="swatch" style="background:#a6e3a1"></span><span data-i18n="working">working</span></span><b id="p_work">0</b></div>
+    <div class="row"><span><span class="swatch" style="background:#f9e2af"></span><span data-i18n="waiting">waiting</span></span><b id="p_wait">0</b></div>
+    <div class="row"><span><span class="swatch" style="background:#f38ba8"></span><span data-i18n="blocked">blocked</span></span><b id="p_block">0</b></div>
+    <div class="row"><span><span class="swatch" style="background:#7d8299"></span><span data-i18n="wrapped">wrapped up</span></span><b id="p_done">0</b></div></div>
+  <h3 data-i18n="rooms">Rooms</h3><div id="p_rooms"></div>
+  <h3 data-i18n="ceodesk">CEO desk</h3><div id="p_company"><div class="muted" data-i18n="ceodesk_note">Requires the Company Layer (po run).</div></div>
+  <h3 data-i18n="roster">Team</h3><div id="p_roster"></div>
+  <h3 data-i18n="workflowsHead">Workflows</h3><div id="p_workflows"></div>
+  <h3 style="margin-top:16px" data-i18n="tipHead">Tip</h3><div class="muted" data-i18n="clickTip">Click any employee to customize their look &amp; name.</div>
 </aside>
+<div id="modal" role="dialog" aria-modal="true"><div class="box">
+  <h2 id="m_title" data-i18n="customize">Customize employee</h2><div class="sub" id="m_sub"></div>
+  <label data-i18n="displayName">Display name</label><input type="text" id="m_name" maxlength="24">
+  <label data-i18n="skin">Skin</label><div class="opts" id="m_skin"></div>
+  <label data-i18n="hair">Hair</label><div class="opts" id="m_hair"></div>
+  <label data-i18n="shirt">Shirt</label><div class="opts" id="m_shirt"></div>
+  <div class="prev"><canvas id="m_prev" width="60" height="60"></canvas><span class="muted" data-i18n="previewNote">live preview — saved to this browser only.</span></div>
+  <div class="foot"><button class="ghost" id="m_reset" data-i18n="reset">Reset</button>
+    <span><button id="m_cancel" data-i18n="cancel">Cancel</button> <button class="primary" id="m_save" data-i18n="save">Save</button></span></div>
+</div></div>
 <script>
-"use strict";
-// ---- honesty note: characters are LIVE CLI SESSIONS (binding.type='cli_session').
-// Employees/chat-delivery/meetings/OKRs are gated until the Company Layer exists.
-// ---- Lucide icons (MIT), inlined so the app stays no-build / offline / no-emoji.
-const SVGNS = "http://www.w3.org/2000/svg";
-const ICONS = {
-  user:"<path d='M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/>",
-  bot:"<path d='M12 8V4H8'/><rect width='16' height='12' x='4' y='8' rx='2'/><path d='M2 14h2'/><path d='M20 14h2'/><path d='M15 13v2'/><path d='M9 13v2'/>",
-  code:"<polyline points='16 18 22 12 16 6'/><polyline points='8 6 2 12 8 18'/>",
-  cpu:"<rect width='16' height='16' x='4' y='4' rx='2'/><rect width='6' height='6' x='9' y='9' rx='1'/><path d='M15 2v2'/><path d='M15 20v2'/><path d='M2 15h2'/><path d='M2 9h2'/><path d='M20 15h2'/><path d='M20 9h2'/><path d='M9 2v2'/><path d='M9 20v2'/>",
-  rocket:"<path d='M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z'/><path d='m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z'/><path d='M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0'/><path d='M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5'/>",
-  ghost:"<path d='M9 10h.01'/><path d='M15 10h.01'/><path d='M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z'/>",
-  cat:"<path d='M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z'/><path d='M8 14v.5'/><path d='M16 14v.5'/><path d='M11.25 16.25h1.5L12 17z'/>",
-  star:"<polygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/>",
-  smile:"<circle cx='12' cy='12' r='10'/><path d='M8 14s1.5 2 4 2 4-2 4-2'/><line x1='9' x2='9.01' y1='9' y2='9'/><line x1='15' x2='15.01' y1='9' y2='9'/>",
-  flame:"<path d='M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z'/>",
-  "circle-check":"<circle cx='12' cy='12' r='10'/><path d='m9 12 2 2 4-4'/>",
-  "circle-help":"<circle cx='12' cy='12' r='10'/><path d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'/><path d='M12 17h.01'/>",
-  "circle-alert":"<circle cx='12' cy='12' r='10'/><line x1='12' x2='12' y1='8' y2='12'/><line x1='12' x2='12.01' y1='16' y2='16'/>",
-  target:"<circle cx='12' cy='12' r='10'/><circle cx='12' cy='12' r='6'/><circle cx='12' cy='12' r='2'/>",
-  users:"<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.87'/><path d='M16 3.13a4 4 0 0 1 0 7.75'/>",
-  "user-minus":"<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><line x1='22' x2='16' y1='11' y2='11'/>",
-  "user-plus":"<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><line x1='19' x2='19' y1='8' y2='14'/><line x1='22' x2='16' y1='11' y2='11'/>",
-  banknote:"<rect width='20' height='12' x='2' y='6' rx='2'/><circle cx='12' cy='12' r='2'/><path d='M6 12h.01'/><path d='M18 12h.01'/>",
-  "trending-up":"<polyline points='22 7 13.5 15.5 8.5 10.5 2 17'/><polyline points='16 7 22 7 22 13'/>",
-  activity:"<path d='M22 12h-4l-3 9L9 3l-3 9H2'/>",
-  map:"<polygon points='3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21'/><line x1='9' x2='9' y1='3' y2='18'/><line x1='15' x2='15' y1='6' y2='21'/>",
-  wrench:"<path d='M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'/>",
-  ban:"<circle cx='12' cy='12' r='10'/><path d='m4.9 4.9 14.2 14.2'/>",
-  lightbulb:"<path d='M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5'/><path d='M9 18h6'/><path d='M10 22h4'/>",
-  "messages-square":"<path d='M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z'/><path d='M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1'/>",
-  "log-out":"<path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><polyline points='16 17 21 12 16 7'/><line x1='21' x2='9' y1='12' y2='12'/>",
-  "undo-2":"<path d='M9 14 4 9l5-5'/><path d='M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11'/>",
-};
-function lucide(name, cls){
-  const body = ICONS[name] || ICONS.user;  // unknown → a neutral user glyph
-  const doc = new DOMParser().parseFromString(
-    "<svg xmlns='"+SVGNS+"' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' "+
-    "stroke-linecap='round' stroke-linejoin='round'>"+body+"</svg>", "image/svg+xml");
-  const svg = document.importNode(doc.documentElement, true);
-  svg.setAttribute("class", "ico" + (cls ? " " + cls : ""));
-  return svg;
-}
-function heading(name, text){ const h=document.createElement("h2"); h.append(lucide(name), document.createTextNode(text)); return h; }
-// shirt-color palette for procedural characters (also the customize swatches)
-const SWATCHES = ["#a6e3a1","#f9e2af","#89b4fa","#f38ba8","#cba6f7","#94e2d5"];
-const rows = new Map();               // charId -> row (live telemetry)
-const floor = document.getElementById("floor"), conn = document.getElementById("conn");
-const banner = document.getElementById("banner");
-const ceo = document.getElementById("ceo"), sheet = document.getElementById("sheet");
+// PWA: register the service worker (shell + last snapshot cached for offline).
+if('serviceWorker' in navigator){try{navigator.serviceWorker.register('/sw.js');}catch(e){}}
+function loadJSON(k,d){try{return JSON.parse(localStorage.getItem(k))||d;}catch(e){return d;}}
+function saveJSON(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+// ── config (DEV: point ws at a running `po up`) ─────────────────────────────
+const WS_URL = (location.search.match(/[?&]ws=([^&]+)/)||[])[1]
+             ? decodeURIComponent(location.search.match(/[?&]ws=([^&]+)/)[1])
+             : ((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws/office');
+const T=16;                       // tile px
+// ── i18n: Korean for inferred KO users, English otherwise. Browser language is
+// authoritative (so an English speaker in Korea stays English); a Seoul timezone
+// only decides when NO language is reported. `?lang=ko|en` forces a choice. ──
+const LANG=(()=>{try{
+  const q=(location.search.match(/[?&]lang=(ko|en)\b/)||[])[1]; if(q)return q;
+  const l=(navigator.language||navigator.userLanguage||'').toLowerCase();
+  const ls=(Array.isArray(navigator.languages)?navigator.languages:[]).map(x=>(x||'').toLowerCase());
+  if(l.startsWith('ko')||ls.some(x=>x.startsWith('ko')))return 'ko';   // explicitly Korean
+  if(l||ls.length)return 'en';                                         // any other explicit language → English
+  if((Intl.DateTimeFormat().resolvedOptions().timeZone||'').indexOf('Seoul')>=0)return 'ko';  // no language → Seoul TZ implies KO
+}catch(e){}return 'en';})();
+const STR={
+  en:{connecting:'connecting…',live:'live',offline:'offline',team:'team',working:'working',waiting:'waiting',
+    blocked:'blocked',wrapped:'wrapped up',tip:"every avatar is a real CLI session — it walks into its team room through the door and its bubble shows what it's doing (live telemetry).",
+    offbanner:'offline — showing last-known state',glance:'Company at a glance',onfloor:'agents on the floor',
+    rooms:'Rooms',ceodesk:'CEO desk',ceodesk_note:'Requires the Company Layer (po run). In watch mode this shows your live CLI floor only.',
+    tipHead:'Tip',clickTip:'Click any employee to customize their look & name.',customize:'Customize employee',
+    displayName:'Display name',skin:'Skin',hair:'Hair',shirt:'Shirt',previewNote:'live preview — saved to this browser only.',
+    reset:'Reset',cancel:'Cancel',save:'Save',roomSuffix:' ROOM',meetingRoom:'MEETING ROOM',entrance:'ENTRANCE',
+    empty:'no agents yet — run one of your AI CLIs and watch them walk in through the entrance.',
+    roster:'Team',workflowsHead:'Workflows',step:'step',noWork:'no active workflow',
+    act_working:'working',act_waiting:'needs you',act_blocked:'blocked',act_done:'wrapped up',act_walk:'walking in',act_idle:'idle'},
+  ko:{connecting:'연결 중…',live:'라이브',offline:'오프라인',team:'직원',working:'작업',waiting:'대기',
+    blocked:'막힘',wrapped:'완료',tip:'모든 아바타는 실제 CLI 세션입니다 — 문으로 팀 방에 들어가고, 말풍선에 지금 하는 일이 실시간 텔레메트리로 표시됩니다.',
+    offbanner:'오프라인 — 마지막 상태 표시 중',glance:'회사 한눈에',onfloor:'사무실의 에이전트',
+    rooms:'방',ceodesk:'CEO 데스크',ceodesk_note:'Company 레이어(po run)가 필요합니다. watch 모드에선 실시간 CLI 현황만 표시됩니다.',
+    tipHead:'팁',clickTip:'직원을 클릭해 외형과 이름을 바꿀 수 있습니다.',customize:'직원 커스터마이즈',
+    displayName:'표시 이름',skin:'피부',hair:'머리',shirt:'셔츠',previewNote:'실시간 미리보기 — 이 브라우저에만 저장됩니다.',
+    reset:'초기화',cancel:'취소',save:'저장',roomSuffix:' 룸',meetingRoom:'회의실',entrance:'입구',
+    empty:'아직 에이전트가 없습니다 — AI CLI를 하나 실행하면 입구로 걸어 들어옵니다.',
+    roster:'팀',workflowsHead:'워크플로',step:'단계',noWork:'진행 중 워크플로 없음',
+    act_working:'작업 중',act_waiting:'확인 필요',act_blocked:'막힘',act_done:'완료',act_walk:'들어오는 중',act_idle:'유휴'}};
+function t(k){return (STR[LANG]&&STR[LANG][k])||STR.en[k]||k;}
+function applyI18n(){document.documentElement.lang=LANG;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n);});}
+function actText(act,moving){return moving?t('act_walk'):(t('act_'+act)|| act || t('act_idle'));}
+const cv=document.getElementById('c'), g=cv.getContext('2d'); g.imageSmoothingEnabled=false;
+let W=0,H=0,DPR=Math.min(2,window.devicePixelRatio||1);
+function resize(){W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+'px';cv.style.height=H+'px';
+  g.setTransform(DPR,0,0,DPR,0,0);g.imageSmoothingEnabled=false;layout();}
+addEventListener('resize',resize);
 
-// ---- stable local presentation store (survives session churn) ----------------
-function loadJSON(k, d){ try { return JSON.parse(localStorage.getItem(k)) || d; } catch(e){ return d; } }
-function saveJSON(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
-const profiles = loadJSON("po:profiles", {});   // charId -> {displayName,sprite,accent}
-const officeCfg = loadJSON("po:office", { rooms:{} });  // roomId -> {label}
-let lastMeeting = null;   // set from /api/company (a concluded async meeting)
-let roster = {};          // company employee id -> department (from /api/company)
-function setBanner(m){ if(m){banner.textContent=m;banner.classList.add("show");} else banner.classList.remove("show"); }
+// ── palettes ────────────────────────────────────────────────────────────────
+const CLI_COL={claude:'#e08a3c',codex:'#3fc7d4',grok:'#cdd9e5',gemini:'#5b86c4',hermes:'#a371f7',agy:'#5b86c4',meeting:'#cba6f7'};
+const CLI_TINT={claude:'#3a2c1e',codex:'#153037',grok:'#2b313c',gemini:'#1c2740',hermes:'#2c2340',agy:'#1c2740',meeting:'#241d33'};
+const ACT={working:'#a6e3a1',waiting:'#f9e2af',blocked:'#f38ba8',done:'#7d8299'};
+const ACT_TXT={working:'working',waiting:'needs you',blocked:'blocked',done:'wrapped up'};
+function cliColor(c){return CLI_COL[c]||'#9aa2b5';}
+function cliTint(c){return CLI_TINT[c]||'#20232e';}
+function hashi(s){let h=2166136261>>>0;for(let i=0;i<(s||'').length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
 
-function charId(r){ return [r.host_id,r.cli,r.session_id,r.agent_id].join("|"); }
-function profileOf(id, r){
-  const p = profiles[id] || {};
-  return { displayName: p.displayName || (r.agent_id==="main"? r.session_id.slice(0,8): r.agent_id),
-           accent: p.accent || null, variant: p.variant || 0 };
-}
+// ── world state ─────────────────────────────────────────────────────────────
+let ROOMS=[];                     // [{cli,x,y,w,h(px), door:{x,y}, slots:[{x,y}]}]
+const AG=new Map();               // id -> {row, px,py, path[], seed, gone, sitting}
+let rowsByCli={}, connLive=false, gotFirst=false;   // gotFirst: seat the initial roster, walk-in later arrivals
+let LOBBY_Y=0, ENTRANCE={x:0,y:0};   // bottom corridor + building entrance
 
-// ---- procedural pixel characters (each id → a distinct little person) --------
-// Inspired by Pixel Agents (one agent = one character) + DiceBear/Minidenticons
-// (deterministic seed→art, no bundled assets). A character is a feature vector
-// derived from a hash of its stable id, rendered as pixel <rect>s in a 16×16 SVG
-// — CSP-safe, offline, no images. skin(5)×hair(8)×hairStyle(6)×eyes(3)×shirt(6)
-// = 4320 combos, so duplicates are near-impossible; a render pass still salts the
-// seed on any collision so no two VISIBLE characters are identical.
-const SKIN = ["#f2d3b3", "#e8b98f", "#c68642", "#8d5524", "#ffe0bd"];
-const HAIR = ["#2b2b3a", "#5b3a1e", "#8a5a2b", "#c9a24b", "#b34b4b", "#6a4bb3", "#3a7d44", "#d9d9e3"];
-const INK = "#1e1e2e";
-function hashStr(s){ let h=2166136261>>>0; for (let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
-function baseSeed(id, variant){ return hashStr(id + "#" + (variant||0)); }
-function featuresFrom(h){ h=h>>>0;
-  return { skin: SKIN[h % SKIN.length], hair: HAIR[(h>>>3) % HAIR.length],
-           hairStyle: (h>>>6) % 6, eyes: (h>>>9) % 3, shirt: SWATCHES[(h>>>12) % SWATCHES.length] }; }
-function featKey(f){ return [f.skin, f.hair, f.hairStyle, f.eyes, f.shirt].join("|"); }
-// only a real hex color may ever reach the SVG string (accent comes from
-// localStorage, which is user-controllable) — everything else is a fixed palette
-function safeColor(c){ return (typeof c==="string" && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : null; }
-let currentLooks = {};   // id -> features, recomputed each render (dedup-stable)
-function resolveLooks(ids){
-  const used = new Set(), out = {};
-  for (const id of ids.slice().sort()){          // deterministic → stable dedup
-    const p = profiles[id] || {};
-    const pinned = Object.prototype.hasOwnProperty.call(p, "variant");  // variant:0 is a valid pin
-    let variant = p.variant || 0; const shirt = safeColor(p.accent);
-    let f = featuresFrom(baseSeed(id, variant)); if (shirt) f.shirt = shirt;
-    // salt the seed until this character is visually unique (unless user-pinned);
-    // best-effort within the cap — with 4320 combos a free one is found unless the
-    // office genuinely exceeds the palette
-    for (let g=0; g<80 && used.has(featKey(f)) && !pinned; g++){
-      variant++; f = featuresFrom(baseSeed(id, variant)); if (shirt) f.shirt = shirt; }
-    used.add(featKey(f)); out[id] = f;
+function layout(){
+  const clis=Object.keys(rowsByCli).sort();
+  const names=clis.concat(['meeting']);           // a dedicated MEETING room always exists
+  const n=names.length;
+  const cols=Math.min(n, W<720?1:W<1100?2:3), rows=Math.ceil(n/cols);
+  const M=Math.round(W<720?20:38);                // corridor width between rooms
+  const top=54, lobbyH=Math.max(2*T,Math.round(H*0.06));   // bottom hallway (lobby) for roaming
+  LOBBY_Y=Math.round((H-lobbyH/2)/T)*T; ENTRANCE={x:Math.round(W/2/T)*T, y:H-4};
+  const areaH=H-top-lobbyH;
+  const rw=Math.floor((W-M*(cols+1))/cols), rh=Math.floor((areaH-M*(rows+1))/rows);
+  ROOMS=names.map((cli,i)=>{
+    const cx=i%cols, cy=(i/cols|0);
+    let x=M+cx*(rw+M), y=top+M+cy*(rh+M);
+    x=Math.round(x/T)*T; y=Math.round(y/T)*T;
+    const w=Math.floor(rw/T)*T, h=Math.floor(rh/T)*T;
+    const door={x:x+Math.round(w/2/T)*T, y:y+h};       // bottom-centre doorway
+    return {cli,x,y,w,h,door,meeting:cli==='meeting',slots:[]};
+  });
+  // desk slots per room, recomputed to fit the current headcount
+  for(const rm of ROOMS){
+    const list=(rowsByCli[rm.cli]||[]);
+    const nn=Math.max(rm.meeting?4:1,list.length);
+    const iw=rm.w-3*T, ih=rm.h-4.5*T, x0=rm.x+2*T, y0=rm.y+3*T;   // inside the walls
+    const sc=Math.max(1,Math.min(Math.round(Math.sqrt(nn*iw/Math.max(1,ih))),nn));
+    const sr=Math.ceil(nn/sc), sx=iw/sc, sy=ih/sr;
+    rm.slots=Array.from({length:nn},(_,k)=>({x:Math.round(x0+(k%sc)*sx+sx/2),y:Math.round(y0+((k/sc|0))*sy+sy/2)}));
   }
-  return out;
 }
-function lookOf(id){ const p = profiles[id] || {};
-  return currentLooks[id] || (function(){ const f=featuresFrom(baseSeed(id, p.variant||0));
-    const shirt=safeColor(p.accent); if(shirt) f.shirt=shirt; return f; })(); }
+// route from the building entrance, along the lobby, up through the room's door, to a seat
+function pathTo(rm,seat){return [{x:ENTRANCE.x,y:LOBBY_Y},{x:rm.door.x,y:LOBBY_Y},
+  {x:rm.door.x,y:rm.door.y+6},{x:seat.x,y:seat.y}];}
 
-function _rect(x, y, w, h, fill){ return "<rect x='"+x+"' y='"+y+"' width='"+w+"' height='"+h+"' fill='"+fill+"'/>"; }
-function pixelCharSVG(f, cls){
-  let g = "";
-  // torso + arms (shirt) and neck
-  g += _rect(4,11,8,5,f.shirt) + _rect(3,12,1,3,f.shirt) + _rect(12,12,1,3,f.shirt) + _rect(6,10,4,1,f.skin);
-  g += _rect(4,3,8,7,f.skin);                                   // head
-  // hair / hat
-  if (f.hairStyle===0){ g += _rect(4,2,8,2,f.hair); }                                   // short
-  else if (f.hairStyle===1){ g += _rect(4,2,8,2,f.hair)+_rect(3,3,1,5,f.hair)+_rect(12,3,1,5,f.hair); } // long
-  else if (f.hairStyle===2){ g += _rect(3,3,10,1,f.hair)+_rect(5,1,6,2,f.hair); }       // cap
-  else if (f.hairStyle===3){ g += _rect(7,0,2,4,f.hair); }                              // mohawk
-  else if (f.hairStyle===4){ g += _rect(5,2,2,1,f.hair); }                              // bald-ish
-  else { g += _rect(4,2,8,2,f.hair)+_rect(11,3,2,2,f.hair); }                           // bun
-  // eyes
-  if (f.eyes===0){ g += _rect(6,6,1,1,INK)+_rect(9,6,1,1,INK); }                        // dots
-  else if (f.eyes===1){ g += _rect(6,6,1,2,INK)+_rect(9,6,1,2,INK); }                   // wide
-  else { g += _rect(6,6,4,1,INK); }                                                     // visor
-  g += _rect(6,8,4,1,"#00000022");                                                      // mouth
-  const svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'>"+g+"</svg>";
-  const el = document.importNode(new DOMParser().parseFromString(svg, "image/svg+xml").documentElement, true);
-  el.setAttribute("class", "pixchar" + (cls ? " " + cls : ""));
-  return el;
-}
-function bubbleText(r){ return r.activity==="waiting"?"needs you": r.activity==="done"?"wrapped up":
-                        r.activity==="blocked"?"blocked":"working"; }
-
-// ---- render the office floor (rooms = per-CLI teams; + inert meeting room) ----
-let editMode = false;
-function roomLabel(id, fallback){ return (officeCfg.rooms[id] && officeCfg.rooms[id].label) || fallback; }
-
-// Persistent DOM nodes: avatars keep the SAME element across renders so their
-// left/top CSS transition actually animates (they walk to their desk slot) and
-// mobile/low-end devices patch instead of rebuilding the whole floor each frame.
-const roomNodes = new Map();     // roomKey -> {room, stage, nameSpan, count}
-const avatarNodes = new Map();   // charId -> {av, face, bubble, nm, lookKey}
-let mrNode = null, mrKey = null;  // meeting room node + a signature of its content
-
-function slotPos(i, n){ const cols=Math.min(n,4)||1; const cw=100/cols;
-  return { left:(cw*(i%cols)+cw/2-6)+"%", top:(Math.floor(i/cols)*46)+"px" }; }
-
-function makeAvatarNode(id){
-  const av=document.createElement("div"); av.tabIndex=0; av.setAttribute("role","button"); av.dataset.cid=id;
-  const bubble=document.createElement("div"); bubble.className="bubble";
-  const face=document.createElement("div"); face.className="face";
-  const nm=document.createElement("div"); nm.className="nm";
-  const ring=document.createElement("div"); ring.className="ring";
-  av.append(bubble,face,nm,ring);
-  const open=()=>{ const r=rows.get(av.dataset.cid); if(r) openSheet(r); };
-  av.addEventListener("click", open);
-  av.addEventListener("keydown", e=>{ if(e.key==="Enter") open(); });
-  return {av,face,bubble,nm,lookKey:null};
-}
-function updateAvatar(rec, r, i, n){
-  const id=charId(r); const prof=profileOf(id,r);
-  const say=(r.activity==="waiting"||r.activity==="blocked")?" say":"";
-  rec.av.className=`avatar ${r.activity} ${r.liveness}${say}`;
-  rec.bubble.textContent=bubbleText(r);
-  rec.nm.textContent=prof.displayName;
-  const look=lookOf(id), lk=featKey(look);
-  if(rec.lookKey!==lk){ rec.face.textContent=""; rec.face.append(pixelCharSVG(look)); rec.lookKey=lk; }
-  const p=slotPos(i,n); rec.av.style.left=p.left; rec.av.style.top=p.top;   // → CSS glide
-}
-function makeRoom(key){
-  const room=document.createElement("div"); room.className="room";
-  const label=document.createElement("div"); label.className="rlabel";
-  const nameSpan=document.createElement("span");
-  const count=document.createElement("span");
-  label.append(nameSpan,count); room.append(label);
-  const stage=document.createElement("div"); stage.className="stage"; room.append(stage);
-  // attach the rename handler ONCE (nameSpan persists); it no-ops unless editing
-  nameSpan.addEventListener("blur", ()=>{ if(!editMode) return;
-    officeCfg.rooms[key]={label:nameSpan.textContent.trim()||key}; saveJSON("po:office", officeCfg); });
-  return {room, stage, nameSpan, count};
-}
-function meetingRoom(all){
-  if(!mrNode){ mrNode=document.createElement("div"); mrNode.className="room meeting"; }
-  const key=JSON.stringify(lastMeeting||null);
-  if(key===mrKey) return mrNode;                 // unchanged → don't churn its DOM
-  mrKey=key; mrNode.textContent="";
-  const ml=document.createElement("div"); ml.className="rlabel";
-  const ms=document.createElement("span"); ms.append(lucide("messages-square"), document.createTextNode(" Meeting room"));
-  ml.append(ms); mrNode.append(ml);
-  if(lastMeeting && lastMeeting.attendees && lastMeeting.attendees.length){
-    const stage=document.createElement("div"); stage.className="stage";
-    lastMeeting.attendees.slice(0,6).forEach((aid,i)=>{
-      const av=document.createElement("div"); av.className="avatar done say";
-      const b=document.createElement("div"); b.className="bubble";
-      b.textContent=String((lastMeeting.decisions&&lastMeeting.decisions[0])||"decided").slice(0,40);
-      const liveRow=all.find(x=>x.cli==="company" && x.agent_id===aid);
-      const f=document.createElement("div"); f.className="face";
-      f.append(pixelCharSVG(liveRow ? lookOf(charId(liveRow)) : lookOf(aid)));
-      const nm=document.createElement("div"); nm.className="nm"; nm.textContent=aid;
-      av.style.left=(18*(i%4)+10)+"%"; av.style.top=(Math.floor(i/4)*46)+"px"; av.append(b,f,nm);
-      stage.append(av);
+// ── ws ──────────────────────────────────────────────────────────────────────
+let ws,retry=0;
+function idOf(r){return [r.host_id,r.cli,r.session_id,r.agent_id].join('|');}
+function ingest(rows,replace){
+  if(replace){rowsByCli={};for(const id of AG.keys())AG.get(id).gone=true;}
+  for(const r of rows){
+    if(!r||!r.cli)continue;
+    (rowsByCli[r.cli]=rowsByCli[r.cli]||[]);
+    const id=idOf(r);
+    let a=AG.get(id);
+    if(!a){a={row:r,px:0,py:0,tx:0,ty:0,seed:hashi(id),born:performance.now(),gone:false,spawned:false};AG.set(id,a);}
+    else {a.row=r;a.gone=false;}
+  }
+  // rebuild rowsByCli lists from live agents (stable, sorted)
+  rowsByCli={};
+  for(const a of AG.values()){if(a.gone)continue;const c=a.row.cli;(rowsByCli[c]=rowsByCli[c]||[]).push(a.row);}
+  for(const c in rowsByCli)rowsByCli[c].sort((x,y)=>idOf(x)<idOf(y)?-1:1);
+  layout();
+  // assign each live agent a slot + spawn at its room door on first sight
+  for(const rm of ROOMS){
+    const list=rowsByCli[rm.cli]||[];
+    list.forEach((r,i)=>{const a=AG.get(idOf(r));if(!a)return;const s=rm.slots[i]||rm.door;
+      a.room=rm; a.seat=s;
+      if(!a.spawned){a.spawned=true;
+        if(gotFirst){a.px=ENTRANCE.x+((a.seed%40)-20);a.py=ENTRANCE.y;a.path=pathTo(rm,s);}  // later arrival walks in the entrance
+        else{a.px=s.x;a.py=s.y;a.path=[];}                                                    // initial roster starts seated
+      } else if((!a.path||!a.path.length)&&Math.hypot(a.px-s.x,a.py-s.y)>T){a.path=[s];}      // re-seat if the slot moved
     });
-    mrNode.append(stage);
-    const cap=document.createElement("div"); cap.className="gate";
-    cap.textContent="async meeting · concluded — "+((lastMeeting.decisions||[]).join("; ")||"no decision");
-    const note=document.createElement("div"); note.className="readonly"; note.style.margin="4px 0 0";
-    note.textContent="animation reflects workflow stages, not a live conversation.";
-    mrNode.append(cap, note);
-  } else {
-    const g=document.createElement("div"); g.className="gate";
-    g.textContent="no meetings yet — a concluded meeting appears here when the company holds one"; mrNode.append(g);
   }
-  return mrNode;
+  // agents no longer present walk out the door then vanish
+  if(replace)gotFirst=true;   // after the first roster, new sessions animate in from the entrance
+  updateHUD();
 }
-
-let emptyNode=document.getElementById("empty");   // adopt the initial markup node
-function render(){
-  if (document.hidden) return;
-  const all = [...rows.values()];
-  currentLooks = resolveLooks(all.map(charId));   // distinct look per visible avatar
-  const byRoom = new Map();
-  // company avatars → department rooms (from the roster); real CLI sessions → their
-  // CLI room. `po run` hosts ONE company so agent_id is unique; an id not in the
-  // roster falls back to the generic "company" room (never a wrong department).
-  for (const r of all){ const k = (r.cli==="company" && roster[r.agent_id]) ? roster[r.agent_id] : r.cli;
-    (byRoom.get(k)||byRoom.set(k,[]).get(k)).push(r); }
-
-  const seenRooms=new Set(), seenAvatars=new Set();
-  for (const key of [...byRoom.keys()].sort()){
-    let rn=roomNodes.get(key); if(!rn){ rn=makeRoom(key); roomNodes.set(key,rn); }
-    seenRooms.add(key);
-    rn.nameSpan.textContent = roomLabel(key, key);
-    rn.nameSpan.contentEditable = editMode ? "true" : "false";   // listener attached once in makeRoom
-    const mates=byRoom.get(key).sort((a,b)=>charId(a)<charId(b)?-1:1);
-    const busy=mates.filter(a=>a.activity==="working"||a.activity==="waiting").length;
-    rn.count.textContent=`${busy}/${mates.length} active`;
-    mates.forEach((r,i)=>{ const id=charId(r); let rec=avatarNodes.get(id);
-      if(!rec){ rec=makeAvatarNode(id); avatarNodes.set(id,rec); }
-      updateAvatar(rec,r,i,mates.length); seenAvatars.add(id);
-      if(rec.av.parentNode!==rn.stage) rn.stage.append(rec.av);   // (re)home; glides if moved
-    });
-    floor.append(rn.room);                                        // keep floor order = sorted keys
-  }
-  floor.append(meetingRoom(all));                                 // meeting room always last
-  // reap rooms + avatars that are no longer present
-  for (const [k,rn] of roomNodes){ if(!seenRooms.has(k)){ rn.room.remove(); roomNodes.delete(k); } }
-  for (const [id,rec] of avatarNodes){ if(!seenAvatars.has(id)){ rec.av.remove(); avatarNodes.delete(id); } }
-  // empty state
-  if(!all.length){ if(!emptyNode){ emptyNode=document.createElement("div"); emptyNode.id="empty";
-      emptyNode.textContent="no agents yet — run one of your AI CLIs and watch them appear."; }
-    if(emptyNode.parentNode!==floor) floor.insertBefore(emptyNode, floor.firstChild);
-  } else if(emptyNode && emptyNode.parentNode){ emptyNode.remove(); }
-  renderCEO(all);
-}
-
-// ---- CEO panel: real "needs you now" + honest glance -------------------------
-function renderCEO(all){
-  const g=document.getElementById("glance"); g.textContent="";
-  const by = {working:0,waiting:0,blocked:0,done:0};
-  let idle=0;
-  for (const r of all){ by[r.activity]=(by[r.activity]||0)+1; if(r.liveness!=="live") idle++; }
-  const stats=[["team",all.length,""],["working",by.working,"working"],["waiting",by.waiting,"waiting"],
-               ["blocked",by.blocked,"blocked"],["done",by.done,"done"],["idle",idle,""]];
-  for (const [lab,val,cls] of stats){ const d=document.createElement("div"); d.className="stat "+cls;
-    const b=document.createElement("b"); b.textContent=val; const s=document.createElement("span"); s.textContent=lab;
-    d.append(b,s); g.append(d); }
-  const needs=document.getElementById("needs"); needs.textContent="";
-  const attention = all.filter(r=>r.activity==="waiting"||r.activity==="blocked"||r.liveness==="disconnected");
-  if (!attention.length){ const li=document.createElement("li"); li.className="none";
-    // be honest about WHY nothing needs you: actively working vs everyone idle/done
-    const working = all.some(r=>r.activity==="working" && r.liveness==="live");
-    const anyLive = all.some(r=>r.liveness==="live");
-    li.textContent = !all.length ? "no one here yet."
-      : working ? "nothing needs you — the team is working."
-      : anyLive ? "nothing needs you — the team is idle right now."
-      : "nothing needs you — everyone has wrapped up or gone offline.";
-    needs.append(li); }
-  for (const r of attention){ const id=charId(r); const prof=profileOf(id,r);
-    const li=document.createElement("li"); li.className = r.activity==="waiting"||r.activity==="blocked"? r.activity:"disconnected";
-    const f=document.createElement("span"); f.className="face"; f.append(pixelCharSVG(lookOf(id)));
-    const box=document.createElement("div");
-    const t=document.createElement("div"); t.textContent = prof.displayName + " · " + r.cli;
-    const why=document.createElement("div"); why.className="why";
-    why.textContent = r.activity==="waiting"?"waiting on you (a prompt/permission)":
-                      r.activity==="blocked"?"blocked — needs a human":"went offline";
-    box.append(t,why); li.append(f,box); li.addEventListener("click",()=>openSheet(r)); needs.append(li); }
-}
-
-// ---- detail + customize + local message --------------------------------------
-let sheetRow=null;
-function openSheet(r){
-  sheetRow=r; const id=charId(r); const prof=profileOf(id,r);
-  document.getElementById("sheetTitle").textContent = prof.displayName;
-  const body=document.getElementById("sheetBody"); body.textContent="";
-  for (const [k,v] of [["cli",r.cli],["activity",r.activity],["liveness",r.liveness],
-                       ["session",r.session_id],["agent",r.agent_id],["parent",r.parent_agent_id||"—"],
-                       ["source",r.last_source],["last seen",r.last_ts],["binding","cli_session"]]){
-    const dt=document.createElement("dt"); dt.textContent=k; const dd=document.createElement("dd"); dd.textContent=v;
-    body.append(dt,dd);
-  }
-  const nameI=document.getElementById("cName"); nameI.value = prof.displayName;
-  nameI.oninput=()=>saveProfile(id,{displayName:nameI.value.trim()});
-  const sp=document.getElementById("cSprites"); sp.textContent="";
-  const curVar=(profiles[id]||{}).variant||0;
-  for (let v=0; v<8; v++){ const b=document.createElement("button");
-    const f=featuresFrom(baseSeed(id,v)); const shirt=safeColor(prof.accent); if(shirt) f.shirt=shirt;
-    b.append(pixelCharSVG(f)); b.title="character "+(v+1);
-    b.setAttribute("aria-pressed", (curVar===v)?"true":"false");
-    b.onclick=()=>{ saveProfile(id,{variant:v}); openSheet(r); render(); }; sp.append(b); }
-  const sw=document.getElementById("cSwatches"); sw.textContent="";
-  SWATCHES.forEach(c=>{ const b=document.createElement("button"); b.style.background=c;
-    b.setAttribute("aria-pressed",(prof.accent===c)?"true":"false");
-    b.onclick=()=>{ saveProfile(id,{accent:c}); openSheet(r); render(); }; sw.append(b); });
-  document.getElementById("cMsgState").textContent="";
-  sheet.hidden=false; requestAnimationFrame(()=>sheet.classList.add("open"));
-}
-function saveProfile(id, patch){ profiles[id]={...(profiles[id]||{}),...patch}; saveJSON("po:profiles",profiles); }
-function closeSheet(){ sheet.classList.remove("open"); setTimeout(()=>sheet.hidden=true,250); }
-document.getElementById("sheetClose").addEventListener("click", closeSheet);
-document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeSheet(); });
-document.getElementById("cQueue").addEventListener("click", ()=>{
-  const msg=document.getElementById("cMsg").value.trim(); if(!msg||!sheetRow) return;
-  const q=loadJSON("po:outbox",[]); q.push({to:charId(sheetRow),msg,at:Date.now()}); saveJSON("po:outbox",q);
-  document.getElementById("cMsgState").textContent="queued locally — this session has NOT received it.";
-});
-document.getElementById("cCopy").addEventListener("click", ()=>{
-  const msg=document.getElementById("cMsg").value; if(navigator.clipboard) navigator.clipboard.writeText(msg).catch(()=>{});
-  document.getElementById("cMsgState").textContent="copied (copying is not delivery).";
-});
-
-// ---- header toggles ----------------------------------------------------------
-document.getElementById("ceoBtn").addEventListener("click", e=>{
-  ceo.classList.toggle("hidden"); e.currentTarget.setAttribute("aria-pressed", ceo.classList.contains("hidden")?"false":"true"); });
-document.getElementById("editBtn").addEventListener("click", e=>{
-  editMode=!editMode; e.currentTarget.setAttribute("aria-pressed", editMode?"true":"false"); render(); });
-document.addEventListener("visibilitychange", render);
-
-// ---- CEO desk: real company data when the Company Layer is running -----------
-function esc(s){ const d=document.createElement("div"); d.textContent=s; return d; }
-let lastCompany=null;   // last SUCCESSFUL company data — retained across transient poll failures
-async function refreshCompany(){
-  const desk=document.getElementById("ceoDesk");
-  let status="error", data=null;
-  try { const r=await fetch("/api/company");
-    if (r.status===200){ data=await r.json(); status="ok"; lastCompany=data; }
-    else if (r.status===204){ status="none"; }        // honest absence: no Company Layer
-  } catch(e){ status="error"; }                        // transient: keep showing last-known
-  if (status==="error" && lastCompany) data=lastCompany;
-  const prevMeeting = lastMeeting;
-  lastMeeting = data ? data.meeting : null;
-  const nextRoster = {}; if (data) for (const m of (data.roster||[])) nextRoster[m.id]=m.dept;
-  const rosterChanged = JSON.stringify(nextRoster) !== JSON.stringify(roster);
-  roster = nextRoster;
-  if (rosterChanged || JSON.stringify(prevMeeting) !== JSON.stringify(lastMeeting)) render();  // refresh floor/meeting room
-  if (!data){  // 204 (real absence) → gated view; a transient error with no prior data → a soft note
-    desk.textContent="";
-    if (status==="none"){
-      for (const [ic,lab] of [["circle-check","Approvals"],["target","OKRs / goals"],
-                              ["users","Team & HR"],["banknote","Budget & spend"]]){
-        const g=document.createElement("div"); g.className="gate locked";
-        const b=document.createElement("b"); b.textContent="Requires Company Layer";
-        g.append(lucide(ic), document.createTextNode(" "+lab+" · "), b); desk.append(g);
-      }
-    } else {
-      const n=document.createElement("div"); n.className="readonly"; n.style.marginTop="0";
-      n.append(lucide("circle-alert"), document.createTextNode(" reconnecting to company data…")); desk.append(n);
-    }
-    return;
-  }
-  desk.textContent="";
-  if (status==="error"){   // showing retained data during a transient poll failure — say so
-    const s=document.createElement("div"); s.className="readonly"; s.style.margin="0 0 6px"; s.style.color="var(--waiting)";
-    s.append(lucide("circle-alert"), document.createTextNode(" reconnecting — showing last-known company state")); desk.append(s);
-  }
-  const chip=document.createElement("div"); chip.className="mode-chip";
-  chip.textContent = `${data.summary.name} · mode: ${data.summary.mode.drive} · CEO sees: ${data.summary.mode.ceo_updates}`;
-  desk.append(chip);
-  // approvals (real CEO cards). The dashboard is read-only — approving happens in
-  // your CLI / company config; the card explains WHAT needs a decision + why.
-  const ah=heading("circle-check", ` Needs your sign-off (${data.ceo_cards.length})`); ah.style.margin="6px 0"; desk.append(ah);
-  if (data.ceo_cards.length){ const note=document.createElement("div"); note.className="readonly"; note.style.margin="0 0 4px";
-    note.textContent="review these in your CLI — this dashboard is a read-only monitor."; desk.append(note); }
-  if (!data.ceo_cards.length){ const d=document.createElement("div"); d.className="readonly"; d.textContent="nothing pending — the team is deciding within its authority."; desk.append(d); }
-  for (const c of data.ceo_cards){
-    const card=document.createElement("div"); card.className="card"+(c.one_way_door?" oneway":"");
-    const t=document.createElement("div"); t.append(lucide(c.one_way_door?"log-out":"undo-2"), document.createTextNode(" "), esc(c.decision));
-    const rec=document.createElement("div"); rec.className="rec"; rec.append(document.createTextNode("recommend: "), esc(c.recommendation||"—"));
-    const det=document.createElement("details"); const sm=document.createElement("summary"); sm.textContent="why / who / how (5W1H)"; det.append(sm);
-    const dl=document.createElement("dl");
-    for (const [k,v] of [["who",c.who],["why",c.why],["how",c.how],["risk",c.risk],["reversibility",c.reversibility]]){
-      const dt=document.createElement("dt"); dt.textContent=k; const dd=document.createElement("dd"); dd.textContent=v; dl.append(dt,dd); }
-    det.append(dl); card.append(t,rec,det); desk.append(card);
-  }
-  // OKRs (real progress)
-  const oh=heading("target", ` Goal: ${Math.round(data.summary.okr_progress*100)}%`); oh.style.margin="10px 0 4px"; desk.append(oh);
-  const obj=document.createElement("div"); obj.className="readonly"; obj.style.marginTop="0"; obj.textContent=data.summary.objective; desk.append(obj);
-  if (!data.okrs.length){ const d=document.createElement("div"); d.className="readonly"; d.textContent="no Key Results yet — the team sets them in the weekly review."; desk.append(d); }
-  for (const k of data.okrs){
-    const o=document.createElement("div"); o.className="okr";
-    const lab=document.createElement("div"); lab.append(esc(`${k.text} (${k.cadence})`), document.createTextNode(` ${Math.round(k.progress*100)}%`));
-    const bar=document.createElement("div"); bar.className="bar"; const fill=document.createElement("i"); fill.style.width=(k.progress*100)+"%"; bar.append(fill);
-    o.append(lab,bar); desk.append(o);
-  }
-  // HR (evidence-based recommendations)
-  const hr=(data.hr||[]);
-  if (hr.length){
-    const hh=heading("users", ` HR (${hr.length})`); hh.style.margin="12px 0 4px"; desk.append(hh);
-    for (const r of hr){ const d=document.createElement("div"); d.className="okr";
-      const fire = r.kind==="fire"; const gate = r.needs_ceo?" · needs your ok":"";
-      const ico = lucide(fire?"user-minus":"user-plus"); ico.style.color = fire?"var(--blocked)":"var(--working)";
-      const t=document.createElement("div");
-      t.append(ico, document.createTextNode(" "+(fire?"fire ":"hire ")), esc(r.target), document.createTextNode(gate));
-      const why=document.createElement("div"); why.className="readonly"; why.style.margin="0"; why.textContent=r.reason;
-      d.append(t,why); desk.append(d); }
-  }
-  // Trend radar
-  const tr=(data.trends||[]);
-  if (tr.length){
-    const th=heading("trending-up", " Trends"); th.style.margin="12px 0 4px"; desk.append(th);
-    for (const t of tr.slice(0,6)){ const d=document.createElement("div"); d.className="readonly"; d.style.margin="2px 0";
-      d.append(lucide("trending-up"), document.createTextNode(" "), esc(t)); desk.append(d); }
-  }
-  // Activity — what the company actually did (newest first), so the CEO can watch
-  const act=(data.activity||[]);
-  if (act.length){
-    const ic={plan:"map",work:"wrench",blocked:"ban",decision:"lightbulb",trend:"trending-up",hr:"users"};
-    const ah2=heading("activity", " Activity"); ah2.style.margin="12px 0 4px"; desk.append(ah2);
-    for (const a of act.slice().reverse().slice(0,10)){
-      const d=document.createElement("div"); d.className="readonly"; d.style.margin="2px 0";
-      d.append(lucide(ic[a.kind]||"activity"), document.createTextNode(" "), esc(a.text)); desk.append(d);
-    }
-  }
-}
-setInterval(refreshCompany, 4000); refreshCompany();
-
-// ---- run-mode badge: honest, persistent (DEMO=simulated vs LIVE=real work) ----
-const MODE_TEXT = { demo:["demo","DEMO · simulated activity, not real work"],
-                    live:["live·real","LIVE · real CLI agents — spends tokens when they work"],
-                    dormant:["idle","company idle — assign work to wake it"],
-                    watch:["watching","watching your live CLI sessions"] };
-function agoText(iso){ if(!iso) return "—"; const s=Math.max(0,Math.round((Date.now()-Date.parse(iso))/1000));
-  return s<60 ? s+"s ago" : Math.round(s/60)+"m ago"; }
-async function refreshMeta(){
-  try { const r=await fetch("/api/meta"); if(!r.ok){ renderDiag(null); return; } const m=await r.json();
-    const el=document.getElementById("mode"); const info=MODE_TEXT[m.run_mode]||MODE_TEXT.watch;
-    el.className="mode-badge "+m.run_mode; el.textContent=info[0]; el.title=info[1];
-    renderDiag(m.diag, m.has_company);
-  } catch(e){ renderDiag(null); }
-}
-function renderDiag(d, hasCompany){
-  const el=document.getElementById("diag"); if(!el) return; el.textContent="";
-  // connection line (client-side truth: is the ws feeding us frames?)
-  const state = conn.textContent==="live" ? "live" : conn.className || "offline";
-  const c=document.createElement("div"); const dot=document.createElement("span");
-  dot.className="dot "+(state==="live"?"live":state==="stale"?"stale":"offline");
-  c.append(dot, document.createTextNode("connection: "+conn.textContent)); el.append(c);
-  if(!d){ const x=document.createElement("div"); x.textContent="diagnostics unavailable"; el.append(x); return; }
-  const src = (d.source_labels&&d.source_labels.length) ? d.source_labels.join(", ")
-            : hasCompany ? "company runtime" : (d.sources+" source(s)");
-  const lines=[["source", src], ["last update", agoText(d.last_update)], ["viewers", String(d.clients)]];
-  for(const [k,v] of lines){ const row=document.createElement("div");
-    row.append(document.createTextNode(k+": "), esc(v)); el.append(row); }
-  if(d.poll_errors>0){ const e=document.createElement("div"); e.className="err";
-    e.append(lucide("circle-alert"), document.createTextNode(" poll errors: "+d.poll_errors)); el.append(e); }
-  const tip=document.createElement("div"); tip.style.marginTop="4px";
-  const code=document.createElement("code"); code.textContent="po doctor";
-  tip.append(document.createTextNode("stuck? run "), code, document.createTextNode(" in your terminal")); el.append(tip);
-}
-refreshMeta(); setInterval(refreshMeta, 5000);
-
-// ---- live wiring: snapshot + deltas, heartbeat + watchdog, offline snapshot ---
-for (const r of loadJSON("po:last",[])){ rows.set(charId(r), r); }
-if (rows.size){ setBanner("showing last-known state — connecting for live…"); render(); }
-let retry=500, sock=null, lastFrameAt=0, hb=null;
-function setConn(text, cls){ conn.textContent=text; conn.className=cls||""; }
 function connect(){
-  const ws=new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/ws/office`);
-  sock=ws;
-  ws.onopen=()=>{ setConn("live"); retry=500; setBanner(""); lastFrameAt=nowMs(); };
-  ws.onmessage=e=>{ lastFrameAt=nowMs(); if(conn.textContent!=="live") setConn("live");
-    let m; try { m=JSON.parse(e.data); } catch(err){ return; }
-    if(m.type!=="snapshot" && m.type!=="delta") return;   // heartbeat pong etc. — no data
-    if(m.type==="snapshot") rows.clear();
-    for (const r of (m.rows||[])) rows.set(charId(r), r); saveJSON("po:last",[...rows.values()]); render(); };
-  ws.onclose=()=>{ setConn("offline","offline");
-    setBanner("offline — showing last-known state. reopen when your office is reachable.");
-    setTimeout(connect,retry); retry=Math.min(retry*2,10000); };
-  ws.onerror=()=>{ try{ ws.close(); }catch(e){} };
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{retry=0;connLive=true;setConn('live');};
+  ws.onmessage=e=>{let d;try{d=JSON.parse(e.data);}catch(_){return;}
+    try{ if(d&&d.type==='snapshot'){ingest(d.rows||[],true);saveJSON('po:last',d.rows||[]);}   // cache last-known
+      else if(d&&d.type==='delta')ingest(d.rows||[],false); }catch(err){}};
+  ws.onerror=()=>{try{ws.close();}catch(_){}}
+  ws.onclose=()=>{connLive=false;setConn('offline');retry=Math.min(retry+1,6);setTimeout(connect,400*retry);};
 }
-function nowMs(){ return (window.performance && performance.now) ? performance.now() : 0; }
-// heartbeat: ping every 5s; if pongs stop arriving the socket is silently dead
-// (no close event) → reconnect. Skipped while the tab is hidden (timers throttle
-// there); becoming visible grants a grace window so a throttled tab doesn't
-// false-trip the watchdog before the next pong can land.
-if (hb) clearInterval(hb);
-hb=setInterval(()=>{
-  if(!sock || document.hidden || sock.readyState!==1) return;
-  // check staleness on the PREVIOUS ping's result, THEN ping again
-  if(lastFrameAt && nowMs()-lastFrameAt>14000 && conn.textContent==="live"){
-    setConn("reconnecting…","stale"); try{ sock.close(); }catch(e){} return;
+function setConn(s){document.getElementById('conn').textContent=t(s==='live'?'live':'offline');
+  document.getElementById('live').classList.toggle('live',s==='live');
+  document.getElementById('off').classList.toggle('show',s!=='live');}   // honest offline banner
+function updateHUD(){let team=0,work=0,wait=0,block=0;
+  for(const a of AG.values()){if(a.gone)continue;team++;const s=a.row.activity;
+    if(s==='working')work++;else if(s==='waiting')wait++;else if(s==='blocked')block++;}
+  n_team.textContent=team;n_work.textContent=work;n_wait.textContent=wait;n_block.textContent=block;
+  renderPanel();}
+
+// ── drawing ───────────────────────────────────────────────────────────────
+function wallTile(x,y){g.fillStyle='#2a2016';g.fillRect(x,y,T,T);g.fillStyle='#3a2c1c';g.fillRect(x,y,T,3);g.fillStyle='#1c150c';g.fillRect(x,y+T-3,T,3);}
+function floorTile(x,y,tint,alt){g.fillStyle=tint;g.fillRect(x,y,T,T);g.fillStyle=alt?'rgba(255,255,255,.03)':'rgba(0,0,0,.06)';g.fillRect(x,y,T,T);g.strokeStyle='rgba(0,0,0,.10)';g.strokeRect(x+.5,y+.5,T,T);}
+function drawRoom(rm){
+  // floor
+  for(let yy=rm.y;yy<rm.y+rm.h;yy+=T)for(let xx=rm.x;xx<rm.x+rm.w;xx+=T){
+    const a=(((xx/T|0)+(yy/T|0))&1)===0; floorTile(xx,yy,cliTint(rm.cli),a);}
+  // walls (ring) with a 2-tile doorway in the bottom wall
+  const dL=rm.door.x-T, dR=rm.door.x+T;
+  for(let xx=rm.x;xx<rm.x+rm.w;xx+=T){ wallTile(xx,rm.y);
+    if(!(xx>=dL&&xx<dR)) wallTile(xx,rm.y+rm.h-T);}
+  for(let yy=rm.y;yy<rm.y+rm.h;yy+=T){ wallTile(rm.x,yy); wallTile(rm.x+rm.w-T,yy);}
+  // doorway: threshold + wooden door + bright posts
+  g.fillStyle='#1a130b';g.fillRect(dL,rm.y+rm.h-T,2*T,T);
+  g.fillStyle='#7a5330';g.fillRect(dL+2,rm.y+rm.h-T+2,2*T-4,T-2);
+  g.fillStyle='#caa46a';g.fillRect(dL,rm.y+rm.h-T,2,T);g.fillRect(dR-2,rm.y+rm.h-T,2,T);
+  g.fillStyle='#e3c98f';g.fillRect(rm.door.x-1,rm.y+rm.h-T+6,2,4);
+  // decorative plants in the lower corners
+  drawPlant(rm.x+1.3*T,rm.y+rm.h-2.4*T); drawPlant(rm.x+rm.w-2.5*T,rm.y+rm.h-2.4*T);
+  // meeting room: a central conference table + chairs (a place for meetings)
+  if(rm.meeting){const tx=rm.x+rm.w/2,ty=rm.y+rm.h/2,tw=Math.min(rm.w-8*T,10*T),th=3*T;
+    g.fillStyle='#3a2f22';g.fillRect(tx-tw/2,ty-th/2+2,tw,th);
+    g.fillStyle='#5b4a34';g.fillRect(tx-tw/2,ty-th/2,tw,3);
+    g.fillStyle='#2a2233';for(let i=0;i<6;i++){g.fillRect(tx-tw/2+8+i*(tw-16)/5-4,ty-th/2-8,8,6);g.fillRect(tx-tw/2+8+i*(tw-16)/5-4,ty+th/2+2,8,6);}}
+  // label plate
+  g.font='bold 11px ui-monospace,monospace';const lab=rm.meeting?t('meetingRoom'):rm.cli.toUpperCase()+t('roomSuffix');
+  const lw=g.measureText(lab).width;g.fillStyle='rgba(12,10,7,.74)';g.fillRect(rm.x+6,rm.y+5,lw+10,15);
+  g.fillStyle=cliColor(rm.cli);g.fillText(lab,rm.x+11,rm.y+16);
+}
+// procedural little person (no external assets), 12x18, colored by cli + hash
+const SKINS=['#f2c9a0','#e0a878','#c98a5e','#a9713f'], HAIRS=['#2b2b33','#5a3a22','#8a5a2b','#caa46a','#3a2a4a'];
+const SHIRTS=['#e08a3c','#3fc7d4','#a6e3a1','#f38ba8','#cba6f7','#f9e2af','#5b86c4','#cdd9e5'];
+let LOOKS=loadJSON('po:looks',{});      // charId -> {name, skin, hair, shirt} (customization, this browser)
+function defName(r){return r.cli+'·'+String(r.session_id||'').replace(/^rollout-[0-9T-]*/,'').slice(0,6);}
+function lookOf(id,a){const r=a.row,sd=a.seed,c=LOOKS[id]||{};
+  return {skin:SKINS[c.skin!=null?c.skin:sd%4], hair:HAIRS[c.hair!=null?c.hair:(sd>>2)%5],
+          shirt:c.shirt||cliColor(r.cli), name:(c.name&&c.name.trim())||defName(r)};}
+function drawPerson(a,t){
+  const r=a.row; if(!r)return;
+  const L=lookOf(idOf(r),a), sd=a.seed, skin=L.skin, hair=L.hair, shirt=L.shirt;
+  const live=(r.liveness==='live'||r.liveness==='unknown'), working=r.activity==='working';
+  const cx=Math.round(a.px), cy=Math.round(a.py);
+  g.globalAlpha=live?1:(r.liveness==='stale'?.62:.4);
+  const bob=a.moving?(Math.floor(t*9+sd)%2?1:0):0, breathe=working&&!a.moving?Math.round(Math.sin(t*4+sd)):0;
+  // chair back behind a seated worker
+  if(a.sitting){g.fillStyle='#4a3b2a';g.fillRect(cx-6,cy-7,12,3);g.fillStyle='#5b4832';g.fillRect(cx-6,cy-16,2,10);g.fillRect(cx+4,cy-16,2,10);}
+  // shadow
+  g.fillStyle='rgba(0,0,0,.26)';g.beginPath();g.ellipse(cx,cy+2,7,3,0,0,7);g.fill();
+  // legs (only when standing/walking)
+  if(!a.sitting){g.fillStyle='#30323e';g.fillRect(cx-4,cy-4,3,4-(bob?1:0));g.fillRect(cx+1,cy-4,3,4-(bob?0:1));}
+  // torso
+  g.fillStyle=shirt;g.fillRect(cx-5,cy-12+breathe,10,9);
+  g.fillStyle='rgba(255,255,255,.16)';g.fillRect(cx-5,cy-12+breathe,10,2);
+  // arms hint when walking
+  if(a.moving){g.fillStyle=shirt;g.fillRect(cx-6,cy-11+breathe,1,5);g.fillRect(cx+5,cy-11+breathe,1,5);}
+  // head + hair + eyes (eyes face walk direction)
+  g.fillStyle=skin;g.fillRect(cx-4,cy-19+breathe,8,7);
+  g.fillStyle=hair;g.fillRect(cx-4,cy-20+breathe,8,3);g.fillRect(cx-4,cy-19+breathe,1,4);g.fillRect(cx+3,cy-19+breathe,1,4);
+  const ex=a.dir==='l'?-1:a.dir==='r'?1:0;
+  g.fillStyle='#20222b';g.fillRect(cx-2+ex,cy-16+breathe,1,1);g.fillRect(cx+1+ex,cy-16+breathe,1,1);
+  // desk + monitor in FRONT of a seated worker (occludes lower body → "at the desk")
+  if(a.sitting){g.fillStyle='#6b4a2e';g.fillRect(cx-9,cy-3,18,6);g.fillStyle='#7d5836';g.fillRect(cx-9,cy-3,18,2);
+    g.fillStyle='#222633';g.fillRect(cx-4,cy-9,8,5);
+    g.fillStyle=working?((Math.floor(t*3)%2)?'#7fe0ea':'#2a8a95'):'#3a3f4a';g.fillRect(cx-3,cy-8,6,3);}
+  g.globalAlpha=1;
+  // working spark
+  if(working&&live&&!a.moving){const p=.5+.5*Math.sin(t*5+sd);g.strokeStyle=`rgba(166,227,161,${.28+p*.4})`;g.lineWidth=1;g.beginPath();g.arc(cx,cy-24+breathe,3+p*2,0,7);g.stroke();}
+  // ── telemetry speech bubble: every avatar shows what it's doing ──
+  const col=ACT[r.activity]||'#9aa2b5', txt=actText(r.activity,a.moving);
+  bubble(cx,cy-27+breathe,txt,a.moving?'#9aa2b5':col,!a.moving&&(working||r.activity==='waiting'||r.activity==='blocked'));
+  // name plate (custom name or cli·session)
+  const nm=L.name;
+  g.font='8px ui-monospace,monospace';const nw=g.measureText(nm).width;
+  g.fillStyle='rgba(0,0,0,.45)';g.fillRect(cx-nw/2-2,cy+4,nw+4,9);g.fillStyle=cliColor(r.cli);g.fillText(nm,cx-nw/2,cy+11);
+  // role badge for company employees (their avatar carries the employee id as agent_id)
+  const rp=(r.cli==='company'&&ROSTER[r.agent_id])?ROSTER[r.agent_id].role:'';
+  if(rp){g.font='7px ui-monospace,monospace';const bw=g.measureText(rp).width;
+    g.fillStyle='rgba(70,90,130,.92)';g.fillRect(cx-bw/2-2,cy+13,bw+4,8);g.fillStyle='#dfe6f2';g.fillText(rp,cx-bw/2,cy+19);}
+  a._hit={x:cx,y:cy-14,id:idOf(r)};   // for click hit-testing (customize modal)
+}
+function bubble(px,py,txt,col,bright){g.font='9px ui-monospace,monospace';const w=g.measureText(txt).width+10,h=14;
+  let bx=Math.round(px-w/2),by=Math.round(py-h);bx=Math.max(2,Math.min(bx,W-w-2));by=Math.max(2,by);
+  g.globalAlpha=bright?.96:.6;g.fillStyle='#11131b';g.fillRect(bx,by,w,h);
+  g.strokeStyle=col;g.lineWidth=1;g.strokeRect(bx+.5,by+.5,w-1,h-1);
+  g.fillStyle='#11131b';g.fillRect(px-2,by+h-1,4,3);
+  g.fillStyle=bright?'#f2eee4':'#9aa2b5';g.fillText(txt,bx+5,by+10);g.globalAlpha=1;}
+
+function frame(now){const tm=now/1000;   // tm = time (t is the translation fn — don't shadow it)
+  g.fillStyle='#0c0d12';g.fillRect(0,0,W,H);
+  // bottom lobby corridor + the building entrance (every avatar walks in here)
+  g.fillStyle='#15151e';g.fillRect(0,LOBBY_Y-T,W,H-(LOBBY_Y-T));
+  g.strokeStyle='#23232f';g.lineWidth=1;g.beginPath();g.moveTo(0,LOBBY_Y-T+.5);g.lineTo(W,LOBBY_Y-T+.5);g.stroke();
+  g.fillStyle='#6b4a2e';g.fillRect(ENTRANCE.x-T,H-5,2*T,5);
+  g.font='8px ui-monospace,monospace';g.fillStyle='#8a7a5a';const et=t('entrance');g.fillText(et,ENTRANCE.x-g.measureText(et).width/2,H-8);
+  for(const rm of ROOMS)drawRoom(rm);
+  // move each agent along its waypoint path (roaming the corridors)
+  for(const a of AG.values()){
+    if(a.gone&&!a._leaving){a._leaving=true;const dr=a.room?a.room.door:{x:ENTRANCE.x,y:LOBBY_Y};
+      a.path=[{x:dr.x,y:(a.room?a.room.door.y+6:LOBBY_Y)},{x:ENTRANCE.x,y:LOBBY_Y},{x:ENTRANCE.x,y:ENTRANCE.y}];}
+    const wp=a.path&&a.path[0];
+    if(wp){const dx=wp.x-a.px,dy=wp.y-a.py,dist=Math.hypot(dx,dy);
+      a.moving=dist>1.4; a.dir=Math.abs(dx)>Math.abs(dy)?(dx>0?'r':'l'):(dy>0?'d':'u');
+      const sp=Math.min(dist,2.2); if(dist>0.5){a.px+=dx/dist*sp;a.py+=dy/dist*sp;}
+      if(dist<2)a.path.shift();
+    } else a.moving=false;
+    a.sitting=!a.moving&&!a.gone&&a.room&&!a.room.meeting;
   }
-  try { sock.send("ping"); } catch(e){}
-}, 5000);
-document.addEventListener("visibilitychange", ()=>{
-  if(!document.hidden){ lastFrameAt=nowMs();                     // grace after wake
-    if(sock && sock.readyState===1){ try{ sock.send("ping"); }catch(e){} } }
-});
-connect();
-if ("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
-</script>
-</body>
-</html>
+  for(const id of [...AG.keys()]){const a=AG.get(id);if(a.gone&&(!a.path||!a.path.length))AG.delete(id);}
+  [...AG.values()].sort((p,q)=>p.py-q.py).forEach(a=>drawPerson(a,tm));
+  if(![...AG.values()].some(a=>!a.gone)){g.fillStyle='#6c7086';g.font='13px ui-monospace,monospace';g.textAlign='center';
+    g.fillText(t('empty'),W/2,H*0.33);g.textAlign='left';}
+  requestAnimationFrame(frame);
+}
+// ── decoration ──────────────────────────────────────────────────────────────
+function drawPlant(x,y){x=Math.round(x);y=Math.round(y);g.fillStyle='#4a3722';g.fillRect(x+2,y+8,9,5);g.fillStyle='#5b4632';g.fillRect(x+2,y+8,9,2);
+  g.fillStyle='#2f7d3a';g.beginPath();g.arc(x+6,y+4,6,0,7);g.fill();g.fillStyle='#3fa34d';g.beginPath();g.arc(x+3,y+6,3,0,7);g.arc(x+9,y+6,3,0,7);g.fill();}
+
+// ── CEO side panel ──────────────────────────────────────────────────────────
+const $=id=>document.getElementById(id);
+function esc(s){return String(s==null?'':s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
+$('panelBtn').onclick=()=>{const o=$('panel').classList.toggle('open');$('panelBtn').setAttribute('aria-expanded',o);};
+let COMPANY=null, ROSTER={};   // ROSTER: employee id -> {role, skills, ...} for avatar role badges
+function renderPanel(){
+  let work=0,wait=0,block=0,done=0;const byRoom={};
+  for(const a of AG.values()){if(a.gone)continue;const s=a.row.activity,c=a.row.cli;byRoom[c]=(byRoom[c]||0)+1;
+    if(s==='working')work++;else if(s==='waiting')wait++;else if(s==='blocked')block++;else if(s==='done')done++;}
+  const team=Object.values(byRoom).reduce((x,y)=>x+y,0);
+  $('p_team').textContent=team;$('p_work').textContent=work;$('p_wait').textContent=wait;$('p_block').textContent=block;$('p_done').textContent=done;
+  $('p_rooms').innerHTML=Object.keys(byRoom).sort().map(c=>
+    `<div class="row"><span><span class="swatch" style="background:${cliColor(c)}"></span>${esc(c)}</span><b>${byRoom[c]}</b></div>`).join('')||'<div class="muted">—</div>';
+  if(COMPANY){const o=COMPANY, sm=o.summary||{};
+    let h=`<div class="card"><div class="row"><b>${esc(sm.name||'company')}</b>`
+      +`<span class="muted">${esc((sm.mode&&sm.mode.drive)||'')}</span></div>`;   // mode is a dict → .drive
+    (o.okrs||[]).slice(0,5).forEach(k=>{h+=`<div class="row"><span>${esc(k.text||k.metric||'KR')}</span><b>${Math.round((k.progress||0)*100)}%</b></div>`;});
+    h+='</div>';$('p_company').innerHTML=h;
+    // team roster: real title + role + skill capability badges (honest — no invented mastery scores)
+    ROSTER={};(o.roster||[]).forEach(e=>{ROSTER[e.id]=e;});
+    $('p_roster').innerHTML=(o.roster||[]).map(e=>{
+      const badges=(e.skills||[]).slice(0,5).map(s=>`<span class="pill">${esc(s)}</span>`).join('');
+      const role=e.role?` · <span class="muted">${esc(e.role)}</span>`:'';
+      return `<div class="rrow"><div><b>${esc(e.title)}</b>${role}</div><div>${badges||'<span class="muted">—</span>'}</div></div>`;
+    }).join('')||'<div class="muted">—</div>';
+    // active workflows + current step (honest: reflects real dispatch state)
+    const wf=(o.workflows||[]).filter(w=>!w.done);
+    $('p_workflows').innerHTML=wf.length?wf.map(w=>
+      `<div class="row"><span>${esc(w.workflow_id)}</span><b>${t('step')} ${(w.step||0)+1}/${w.steps||'?'}${w.blocked?' ⚠':''}</b></div>`).join(''):`<div class="muted">${t('noWork')}</div>`;
+  } else { ROSTER={}; if($('p_roster'))$('p_roster').innerHTML=''; if($('p_workflows'))$('p_workflows').innerHTML=''; }
+}
+async function pollCompany(){try{const r=await fetch('/api/company');COMPANY=(r.status===204)?null:await r.json();}catch(e){COMPANY=null;}renderPanel();}
+setInterval(pollCompany,5000);pollCompany();
+
+// ── per-employee customization modal ────────────────────────────────────────
+let editId=null, draft={};
+function findAgent(id){for(const a of AG.values())if(!a.gone&&idOf(a.row)===id)return a;return null;}
+function avatarAt(x,y){let best=null,bd=20;for(const a of AG.values()){if(a.gone||!a._hit)continue;const d=Math.hypot(a._hit.x-x,a._hit.y-y);if(d<bd){bd=d;best=a;}}return best;}
+cv.addEventListener('click',e=>{const a=avatarAt(e.clientX,e.clientY);if(a)openModal(a._hit.id);});
+function swatchRow(el,colors,curFn,pick){el.innerHTML='';colors.forEach((c,i)=>{const b=document.createElement('div');
+  b.className='sw'+(i===curFn()?' on':'');b.style.background=c;b.title=c;
+  b.onclick=()=>{pick(i);[...el.children].forEach(x=>x.classList.remove('on'));b.classList.add('on');drawPrev();};el.appendChild(b);});}
+function openModal(id){const a=findAgent(id);if(!a)return;editId=id;const c=LOOKS[id]||{},sd=a.seed;
+  draft={name:c.name||'',skin:c.skin!=null?c.skin:sd%4,hair:c.hair!=null?c.hair:(sd>>2)%5,
+         shirt:c.shirt?Math.max(0,SHIRTS.indexOf(c.shirt)):Math.max(0,SHIRTS.indexOf(cliColor(a.row.cli)))};
+  $('m_sub').textContent=a.row.cli+' · '+String(a.row.session_id||'').slice(0,20);
+  $('m_name').value=draft.name;$('m_name').placeholder=defName(a.row);
+  $('m_name').oninput=()=>{draft.name=$('m_name').value;drawPrev();};
+  swatchRow($('m_skin'),SKINS,()=>draft.skin,i=>draft.skin=i);
+  swatchRow($('m_hair'),HAIRS,()=>draft.hair,i=>draft.hair=i);
+  swatchRow($('m_shirt'),SHIRTS,()=>draft.shirt,i=>draft.shirt=i);
+  drawPrev();$('modal').classList.add('open');}
+function closeModal(){$('modal').classList.remove('open');editId=null;}
+$('m_cancel').onclick=closeModal;
+$('modal').onclick=e=>{if(e.target.id==='modal')closeModal();};
+addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+$('m_save').onclick=()=>{if(!editId)return;LOOKS[editId]={name:(draft.name||'').trim()||undefined,skin:draft.skin,hair:draft.hair,shirt:SHIRTS[draft.shirt]};
+  saveJSON('po:looks',LOOKS);closeModal();};
+$('m_reset').onclick=()=>{if(editId){delete LOOKS[editId];saveJSON('po:looks',LOOKS);}closeModal();};
+function drawPrev(){const pc=$('m_prev').getContext('2d');pc.imageSmoothingEnabled=false;pc.clearRect(0,0,60,60);
+  const skin=SKINS[draft.skin],hair=HAIRS[draft.hair],shirt=SHIRTS[draft.shirt];
+  pc.save();pc.translate(30,46);pc.scale(1.7,1.7);
+  pc.fillStyle='#30323e';pc.fillRect(-4,-3,3,4);pc.fillRect(1,-3,3,4);
+  pc.fillStyle=shirt;pc.fillRect(-5,-12,10,9);
+  pc.fillStyle=skin;pc.fillRect(-4,-19,8,7);
+  pc.fillStyle=hair;pc.fillRect(-4,-20,8,3);pc.fillRect(-4,-19,1,4);pc.fillRect(3,-19,1,4);
+  pc.fillStyle='#20222b';pc.fillRect(-2,-16,1,1);pc.fillRect(1,-16,1,1);pc.restore();}
+
+// show last-known state instantly (offline-friendly) until the live ws connects.
+// Guarded: a stale/old-format cached snapshot must NEVER stop the app booting.
+try{const _last=loadJSON('po:last',null); if(Array.isArray(_last)&&_last.length)ingest(_last,true);}
+catch(e){try{localStorage.removeItem('po:last');}catch(_){}}
+applyI18n();
+if(location.search.includes('panel'))$('panel').classList.add('open');
+if(location.search.includes('modal'))setTimeout(()=>{const a=[...AG.values()].find(x=>!x.gone);if(a)openModal(idOf(a.row));},1800);
+resize();connect();requestAnimationFrame(frame);
+</script></body></html>

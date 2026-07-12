@@ -3,7 +3,7 @@
 // the deploy playbook (tunnel). This SW makes the shell installable and keeps the
 // LAST seen state visible offline; it never implies the local office is remotely
 // reachable on its own.
-const CACHE = "pixel-office-v2";
+const CACHE = "pixel-office-v3";
 const SHELL = ["/", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
