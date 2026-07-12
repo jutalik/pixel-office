@@ -12,7 +12,7 @@ from . import hr as hr_mod
 from . import po
 from .employee import Team
 from .memo import MemoBook
-from .meeting import Meeting, apply_outcome
+from .meeting import Meeting
 from .mode import OperatingMode
 from .okr import OKRTree
 from .radar import TrendRadar
@@ -189,7 +189,7 @@ class Company:
     def learnings_view(self, limit: int = 6) -> list:
         with self._lock:
             return [{"proposer": l.proposer_id, "lens": l.lens, "target": l.target_kr_id,
-                     "falsified": l.falsified} for l in self.learnings[-limit:]]
+                     "unconfirmed": l.unconfirmed} for l in self.learnings[-limit:]]
 
     def ideas_view(self, limit: int = 6) -> dict:
         """Honest idea board for the CEO panel: associated outcomes (correlational,
@@ -231,12 +231,13 @@ class Company:
     def hold_meeting(self, topic: str, decision_to_make: str, attendees, *,
                      position_fn, synthesize_fn, packet: Optional[dict] = None):
         """Run an async meeting (parallel memos → one synthesis); attendees animate
-        via the runtime sink, the outcome auto-updates OKRs, and it's recorded for
-        the office meeting room (honest: a concluded workflow, not live dialogue)."""
+        via the runtime sink and it's recorded for the office meeting room. HONEST: a
+        meeting yields DECISIONS + ACTION items (which become real backlog work) — it
+        does NOT move any displayed metric. OKRs advance only from real telemetry
+        (okr.apply_metrics) or a real task outcome, never from a meeting's own words."""
         m = Meeting(topic, decision_to_make, [str(a) for a in attendees], packet=packet or {})
         outcome = m.run(position_fn=position_fn, synthesize_fn=synthesize_fn,
                         sink=lambda emp, stage: self.runtime._emit(emp, stage))
-        apply_outcome(self.okrs, outcome)
         self._last_meeting = {"topic": topic, "attendees": m.attendees,
                               "decisions": outcome.decisions,
                               "actions": outcome.actions}

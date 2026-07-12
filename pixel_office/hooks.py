@@ -126,11 +126,20 @@ def _save_settings(path: Path, settings: dict, expected_token) -> None:
         raise RuntimeError(
             f"{path} changed while po was editing it — re-run the command.")
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():  # one reversible backup per change
+    prev_mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    if path.exists():  # one reversible backup per change (private — settings can hold config)
         backup = path.with_suffix(".json.po-backup")
         backup.write_text(path.read_text())
+        try:
+            os.chmod(backup, prev_mode)
+        except OSError:
+            pass
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(settings, indent=2) + "\n")
+    try:
+        os.chmod(tmp, prev_mode)   # preserve the original mode — never widen to world-readable
+    except OSError:
+        pass
     os.replace(tmp, path)
 
 

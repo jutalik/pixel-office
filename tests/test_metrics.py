@@ -68,6 +68,26 @@ def test_fetch_metrics_empty_url_is_noop():
     assert metrics.fetch_metrics("") == {}
 
 
+def test_fetch_metrics_blocks_ssrf_targets(monkeypatch):
+    # a cloned/untrusted manifest must not be able to poll metadata/internal IPs
+    def boom(url, timeout=0):
+        raise AssertionError("should never be requested")
+    monkeypatch.setattr(metrics.urllib.request, "urlopen", boom)
+    assert metrics.fetch_metrics("http://169.254.169.254/latest/meta-data") == {}   # cloud metadata
+    assert metrics.fetch_metrics("http://192.168.1.10:8000") == {}                  # private LAN IP
+    assert metrics.fetch_metrics("http://metadata.google.internal") == {}           # metadata name
+    assert metrics.fetch_metrics("file:///etc/passwd") == {}                        # non-http scheme
+
+
+def test_fetch_metrics_allows_loopback_and_public_hosts(monkeypatch):
+    seen = []
+    monkeypatch.setattr(metrics.urllib.request, "urlopen",
+                        lambda url, timeout=0: seen.append(url) or _R({}))
+    metrics.fetch_metrics("http://127.0.0.1:8000")     # local product — allowed
+    metrics.fetch_metrics("http://myproduct.example.com")  # public host — allowed
+    assert any("127.0.0.1" in u for u in seen) and any("example.com" in u for u in seen)
+
+
 def test_fetch_metrics_fails_open(monkeypatch):
     def boom(url, timeout=0):
         raise OSError("down")

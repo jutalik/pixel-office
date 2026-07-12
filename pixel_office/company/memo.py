@@ -34,6 +34,9 @@ class DecisionMemo:
         return not self.reversible
 
 
+MAX_MEMOS = 200   # bounded: a long-lived daemon opens memos on a cadence — keep it finite
+
+
 class MemoBook:
     """Holds open decisions; routes each by the operating mode."""
 
@@ -43,7 +46,19 @@ class MemoBook:
 
     def open(self, memo: DecisionMemo) -> DecisionMemo:
         self.memos.append(memo)
+        if len(self.memos) > MAX_MEMOS:   # drop oldest RESOLVED first; keep the CEO queue…
+            resolved = [i for i, m in enumerate(self.memos) if m.status != NEEDS_CEO]
+            for i in resolved[:len(self.memos) - MAX_MEMOS]:
+                self.memos[i] = None
+            self.memos = [m for m in self.memos if m is not None]
+        if len(self.memos) > MAX_MEMOS:   # …but STRICTLY bound: if all await the CEO, drop oldest
+            del self.memos[:len(self.memos) - MAX_MEMOS]
         return memo
+
+    def has_open(self, title: str) -> bool:
+        """Is a memo with this title still awaiting the CEO? Lets callers avoid opening
+        a duplicate decision for the same unresolved situation every cadence."""
+        return any(m.title == title and m.status == NEEDS_CEO for m in self.memos)
 
     def decide(self, memo: DecisionMemo) -> str:
         """Move a memo forward: escalate to the CEO if the mode requires it,

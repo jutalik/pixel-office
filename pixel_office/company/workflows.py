@@ -35,6 +35,8 @@ class Step:
     skill: str = ""     # a skills.SKILLS id (preferred routing signal)
     family: str = ""    # fallback family when no specific skill
     tier: str = ""      # optional per-step tier override
+    risky: bool = False  # side-effecting (deploy/publish/rollout) — requires CEO approval,
+    #                      NEVER auto-executed by the live loop (control fails closed)
 
 
 @dataclass(frozen=True)
@@ -71,14 +73,14 @@ WORKFLOWS: Dict[str, Workflow] = {w.id: w for w in (
         Step("implement", "backend-impl"),
         Step("test", "testing"),
         Step("review", "code-review"),
-        Step("deploy", "devops-ci"),
+        Step("deploy", "devops-ci", risky=True),
     ]),
     _wf("content-pipeline", "Content pipeline", [
         Step("research", family="content"),
         Step("draft", "copywriting"),
         Step("edit", "content-editing"),
         Step("seo", "seo"),
-        Step("publish", family="content"),
+        Step("publish", family="content", risky=True),
     ]),
     _wf("architecture-review", "Architecture review", [
         Step("gather", "system-design"),
@@ -96,7 +98,7 @@ WORKFLOWS: Dict[str, Workflow] = {w.id: w for w in (
     _wf("incident-response", "Incident response", [
         Step("detect", family="engineering"),
         Step("triage", "devops-ci"),
-        Step("mitigate", "backend-impl"),
+        Step("mitigate", "backend-impl", risky=True),
         Step("verify", "testing"),
         Step("postmortem", "architecture-review"),
     ]),

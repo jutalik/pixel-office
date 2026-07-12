@@ -98,18 +98,21 @@ def test_company_runtime_dispatches():
     assert r.ok
 
 
-def test_company_hold_meeting_updates_okrs_and_records():
+def test_company_hold_meeting_records_but_never_moves_okrs():
     from pixel_office.company.meeting import GoalUpdate, Outcome
     c = _company()
     events = []
     c.runtime.sink = events.append
+    before = c.okrs.key_results[0].current
     out = c.hold_meeting(
         "weekly review", "how to lift weekly posts?", ["eng", "writer"],
         position_fn=lambda a, p: f"{a}: publish more",
         synthesize_fn=lambda pos, pk: Outcome(decisions=["publish 8/wk"],
                                               goal_updates=[GoalUpdate("kr1", 8)]))
     assert out.decisions == ["publish 8/wk"]
-    assert c.okrs.key_results[0].current == 8            # OKR auto-updated by the meeting
+    # HONEST: a meeting's own synthesis must NOT move a displayed metric, even if it
+    # emits goal_updates — only real telemetry / real task outcomes move OKRs.
+    assert c.okrs.key_results[0].current == before
     mv = c.meeting_view()
     assert mv["attendees"] == ["eng", "writer"] and mv["decisions"] == ["publish 8/wk"]
     assert c.summary()["has_meeting"] is True

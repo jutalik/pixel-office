@@ -76,3 +76,8 @@ One responsive app (not a second frontend). Phones default to a **read-only moni
 same ws feed with rendering reduced; risky actions require deliberate re-auth. Because the app is
 local-first, a phone can only reach it once the deploy playbook has set up a tunnel/live URL — so
 mobile monitoring is intentionally **coupled to live promotion**.
+
+> **Status (not yet built):** the server currently enforces a **loopback-only** Host/Origin
+> allowlist (`127.0.0.1`/`localhost`), so a raw tunnel hostname is rejected as-is. Real
+> remote/phone access needs an explicit, authenticated configurable allowlist — future work, not
+> shipped. Today, view remotely over a private overlay (e.g. Tailscale) that presents as loopback.

@@ -8,13 +8,41 @@ no poll (honest: OKRs stay at 0% until real metrics land). Stdlib only, fail-ope
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
+import socket
+import urllib.parse
 import urllib.request
 from typing import Dict
 
 _KPI_PATHS = ("/api/telemetry", "/api/funnel", "/api/quality", "/api/growth")
 _MAX_BODY = 256 * 1024   # bounded read (a misbehaving product can't OOM us)
+
+
+def _ip_unsafe(ip) -> bool:
+    if ip.is_loopback:
+        return False   # a local product on 127.0.0.1 is the intended common case
+    return ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_multicast
+
+
+def _ssrf_blocked(host: str) -> bool:
+    """SSRF guard: the product URL can come from a CLONED, untrusted project manifest.
+    Block cloud-metadata / internal names, private/link-local IP LITERALS, AND hostnames
+    that RESOLVE to such addresses (DNS-rebinding). Loopback stays allowed; a hostname
+    that can't be resolved is left to the request itself (fails open there)."""
+    h = str(host or "").strip().strip("[]").lower()
+    if not h or h in ("metadata", "metadata.google.internal") or h.endswith(".internal"):
+        return True
+    try:
+        return _ip_unsafe(ipaddress.ip_address(h))   # IP literal → check directly
+    except ValueError:
+        pass
+    try:                                              # hostname → resolve and check every address
+        infos = socket.getaddrinfo(h, None)
+    except OSError:
+        return False   # unresolvable (e.g. a test/offline host) → let the request handle it
+    return any(_ip_unsafe(ipaddress.ip_address(info[4][0])) for info in infos)
 
 
 def fetch_metrics(base_url: str, *, timeout: float = 4.0) -> Dict[str, float]:
@@ -24,6 +52,9 @@ def fetch_metrics(base_url: str, *, timeout: float = 4.0) -> Dict[str, float]:
     base = str(base_url or "").rstrip("/")
     if not base:
         return {}
+    parsed = urllib.parse.urlparse(base)
+    if parsed.scheme not in ("http", "https") or _ssrf_blocked(parsed.hostname):
+        return {}   # non-http scheme or an internal/metadata target → refuse (SSRF)
     out: Dict[str, float] = {}
     conflicted: set = set()   # a name two endpoints disagree on is ambiguous — don't trust it
     for path in _KPI_PATHS:

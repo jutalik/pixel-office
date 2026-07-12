@@ -77,24 +77,26 @@ class IdeaRecord:
 
 @dataclass
 class LearningRecord:
-    """What a FAILED experiment taught — kept ENTIRELY separate from reputation and KR
-    progress. A falsified hypothesis with a reusable scope (which lens on which KR did
-    NOT beat baseline), used only as context for future proposals. Never points."""
+    """What a missed experiment left UNCONFIRMED — kept ENTIRELY separate from reputation
+    and KR progress. Honest: the KR not beating its baseline-adjusted threshold does NOT
+    disprove the assumption (the KR may not even measure it), so this is recorded as an
+    *unconfirmed* hypothesis with a reusable scope (which lens on which KR), used only as
+    context for future proposals. Never points, never 'falsified'."""
     proposer_id: str
     lens: str
     target_kr_id: str
-    falsified: str        # the assumption that did not hold
+    unconfirmed: str      # the assumption the experiment did NOT confirm (not 'disproved')
     idea_id: int
     tick: int
 
 
 def learning_from(idea, tick: int) -> "LearningRecord":
-    """Distil a FAILED idea into a reusable lesson: the (proposer, lens, KR) scope and
-    the specific assumption its miss falsified. Prefers the proposer's own stated
-    assumption, else the system floor — never invents one."""
+    """Distil a threshold-missing idea into a reusable note: the (proposer, lens, KR)
+    scope and the assumption its miss left UNCONFIRMED. Prefers the proposer's own stated
+    assumption, else the system floor — never invents one, never claims it was disproved."""
     assumption = (idea.proposer_assumptions or idea.system_assumptions or ("(no stated assumption)",))[0]
     return LearningRecord(proposer_id=idea.proposer_id, lens=idea.lens,
-                          target_kr_id=idea.target_kr_id, falsified=str(assumption)[:160],
+                          target_kr_id=idea.target_kr_id, unconfirmed=str(assumption)[:160],
                           idea_id=idea.id, tick=int(tick))
 
 

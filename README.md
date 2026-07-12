@@ -23,9 +23,11 @@ it's the fastest way to understand what Pixel Office is.
 
 ## Two ways to run it
 
-**Watch mode — your real CLI sessions.** Every running agent, subagent, and LLM call
-shows up as an avatar that moves between rooms and shows what it's doing (Claude Code,
-Codex, and Grok today; more via one-file adapters — see [`docs/CLI-MATRIX.md`](docs/CLI-MATRIX.md)).
+**Watch mode — your real CLI sessions.** Every running agent shows up as an avatar that
+moves between rooms and shows what it's doing. Fidelity varies by CLI: **Claude Code** has
+the fullest coverage (working/waiting/blocked + subagents via `po hooks install`), while
+**Codex** and **Grok** are surfaced today by session tailing (working/done). Details +
+how to add a CLI: [`docs/CLI-MATRIX.md`](docs/CLI-MATRIX.md).
 
 ```bash
 po up                      # watch all active CLI sessions as avatars

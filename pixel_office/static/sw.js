@@ -1,8 +1,8 @@
-// Pixel Office service worker — offline shell + last-snapshot for phone monitoring.
-// Local-first caveat: the app is only reachable from a phone once promoted via
-// the deploy playbook (tunnel). This SW makes the shell installable and keeps the
-// LAST seen state visible offline; it never implies the local office is remotely
-// reachable on its own.
+// Pixel Office service worker — caches the app SHELL for offline/installable use.
+// It caches the shell only; the LAST-seen office state is restored separately by the
+// client from localStorage (`po:last`), not by this worker. Local-first caveat: the
+// app is only reachable from a phone once promoted via a tunnel — this SW never
+// implies the local office is remotely reachable on its own.
 const CACHE = "pixel-office-v3";
 const SHELL = ["/", "/icon.svg", "/manifest.webmanifest"];
 

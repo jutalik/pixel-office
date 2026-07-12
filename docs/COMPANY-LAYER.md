@@ -145,10 +145,10 @@ everyone else is a role-scoped execution on the shared runtime.
   toward stalled KRs → dispatch ≤N backlog tasks → cadence-gated review/radar/HR,
   each independently fail-open). `po run --demo/--live` runs it on a background
   daemon thread; cost scales with *decisions*, not wall-clock (dormant when idle).
-- **Growth engine (meta-loop):** the weekly review also scores *KR velocity* and
-  adapts the operating model itself — cadence, which practices earn their keep,
-  where to make a bold bet, which role to add/drop — always to raise growth rate
-  toward the Objective. Process is a tunable, measured against real progress.
+- **Growth engine (meta-loop) — *planned, not yet built:*** the review would also score
+  *KR velocity* and adapt the operating model itself — cadence, which practices earn
+  their keep, where to make a bold bet, which role to add/drop. Today the loop dispatches
+  work and moves OKRs from real metrics; the self-adapting meta-loop is future work.
 
 ## 4. Autonomy & gates — approval envelopes
 
@@ -167,15 +167,20 @@ never unconstrained side-effects.
   "auto-approve staging deploys under $X." **The operating mode (§0.6) sets the
   default envelope width** — `Autopilot` = wide (few, broad envelopes), `Manual` =
   narrow (more, tighter approvals).
-- **Circuit breakers** (fail-closed): anomalous fan-out, repeated failures,
-  unexpected external targets, rapid budget burn → pause + escalate. Guards
-  against *permission laundering* (many allowed steps → one unapproved outcome).
+- **Fail-closed controls:** enforced today in `--live` — a bounded activation budget
+  (`PO_LIVE_MAX_ACTIONS`, spent → no more real calls) and **approval-required risky
+  steps** (deploy/publish/mitigate never auto-run; they open a one-way-door CEO
+  decision). An SSRF guard blocks metrics polling of internal/metadata addresses.
+  *Planned:* fuller circuit breakers (anomalous fan-out, rapid-burn detection) to
+  further guard against *permission laundering* (many allowed steps → one unapproved outcome).
 
 ## 5. Self-learning (evidence-first, mostly deterministic)
 
-- **Evidence before lessons**: store the immutable event (task/commit/test/metric/
-  approval/failure/rollback/reviewer verdict) first; a *lesson* is derived with
-  confidence + scope + expiry, always carrying its evidence id.
+- **Evidence before lessons**: record the event (task/commit/test/metric/approval/
+  failure/rollback/reviewer verdict) first; a *lesson* is derived with confidence +
+  scope, carrying its evidence id. The raw event log is **bounded** (capped, oldest
+  trimmed) — the per-class competency *stats* are the source of truth, so trimming raw
+  evidence never changes a score (it is not an immutable ledger).
 - **Mostly deterministic extraction** from outcomes; spend an LLM reflection call
   only on novelty/failure/correction/surprising-success/repeated-pattern — never
   after every trivial task.

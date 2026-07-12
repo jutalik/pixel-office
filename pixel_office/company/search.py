@@ -29,7 +29,7 @@ def searxng_search_fn(base_url: str, *, timeout: float = 6.0, max_results: int =
         req = urllib.request.Request(url, headers={"User-Agent": "pixel-office/0.1"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user-configured host
-                data = json.loads(resp.read().decode("utf-8", "replace"))
+                data = json.loads(resp.read(512 * 1024).decode("utf-8", "replace"))  # bounded read
         except Exception:
             return []   # network/parse error is not fatal — the radar fails open
         out: List[str] = []

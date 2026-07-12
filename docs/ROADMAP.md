@@ -22,5 +22,8 @@ deterministic stub is zero-token, the real CLI executor is opt-in):
 - ✅ **CLIExecutor** (`company/executor_cli.py`) — real employee work with a
   compact token-efficient prompt; opt-in (a real run spends tokens).
 
-Next (token-spending / polish): a real subprocess invoke_fn per CLI with account
-isolation; live meeting-gather animation in the office UI; HR/radar UI surfacing.
+Since shipped (the Company Layer + game): the real subprocess invoke_fn (`cli_invoke`),
+live meeting-gather animation, HR/radar/idea/trend UI surfacing, the honest
+idea→outcome→reputation loop with baseline adjustment, trend-grounded creativity, and
+the `--live` control gate (bounded activations + approval-required risky steps). See
+`docs/COMPANY-LAYER.md`.

@@ -71,9 +71,10 @@ def test_refusal_markers_are_precise_not_overbroad():
     assert ex("작업이 실패했습니다").ok is False
     # but a genuine success that merely contains the words "read-only" is NOT blocked
     assert ex("implemented read-only mode and all tests pass").ok is True
-    # "done" must be the WORD, not a prefix of another word
-    assert ex("donefoo is now wired up").ok is True            # success (no refusal markers)
-    assert ex("DONE").summary == "" or ex("DONE").ok is True   # bare DONE verdict → success
+    # "done" must be the WORD, not a prefix of another word — and generic prose with no
+    # completion signal is NOT counted as done (honest: "reported", needs verification)
+    assert ex("donefoo is now wired up").ok is False           # no completion signal → reported
+    assert ex("DONE").ok is True                               # bare DONE verdict → success
 
 
 def test_done_verdict_is_success_and_prefix_stripped():
@@ -85,6 +86,21 @@ def test_plain_success_text_without_a_verdict_still_passes():
     # backward-compatible: a normal result line with no refusal markers is success
     r = CLIExecutor(invoke_fn=lambda c, p: "added the migration and tests pass")(Employee("e", "eng"), Task("x", dri="e"))
     assert r.ok is True
+
+
+def test_completion_detection_handles_first_person_markdown_and_phrases():
+    ok = lambda reply: CLIExecutor(invoke_fn=lambda c, p, _r=reply: _r)(Employee("e", "eng"), Task("x", dri="e")).ok
+    assert ok("I added the endpoint and wired the tests") is True     # first-person completion
+    assert ok("### DONE: shipped the feature") is True                # markdown-prefixed verdict
+    assert ok("The fix is complete and deployed to staging") is True  # completion phrase
+    assert ok("Here is a plan: first we should consider…") is False   # a PLAN → reported, not done
+    assert ok("Could you clarify the requirements?") is False         # a question → reported
+
+
+def test_done_verdict_that_describes_a_failure_is_not_credited():
+    # honesty: "DONE:" must not override a result that itself reports failure
+    r = CLIExecutor(invoke_fn=lambda c, p: "DONE: failed to deploy, permission denied")(Employee("e", "eng"), Task("x", dri="e"))
+    assert r.ok is False and "blocked" in r.summary
 
 
 def test_objective_grounds_the_prompt_when_set():

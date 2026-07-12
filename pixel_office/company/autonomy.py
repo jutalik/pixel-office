@@ -12,6 +12,7 @@ throttled (per the CEO's "no limits").
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
@@ -81,6 +82,21 @@ def workflow_planner(company: Company, kr) -> Task:
         run.done = True
         raise _NoWork()
     step = wf.steps[run.step_index]
+    if getattr(step, "risky", False):
+        # CONTROL FAILS CLOSED: a side-effecting step (deploy/publish/mitigate) is NEVER
+        # auto-executed. It opens a one-way-door CEO decision (deduped) and the workflow
+        # waits for human approval rather than a generated task deploying/publishing.
+        title = f"approve {step.name}: {kr.text}"
+        if not company.memos.has_open(title):
+            m = company.memos.open(DecisionMemo(
+                title=title, dri=(best_owner_for_step(company, kr, step) or company.team.all()[0]).id
+                if len(company.team) else "?",
+                decision=f"run the '{step.name}' step (has real side effects)",
+                rationale=f"workflow {run.workflow_id} on: {kr.text}",
+                reversible=False, risk="high"))   # reversible=False → one_way_door → always escalates
+            company.memos.decide(m)
+            company.record_activity("approval", f"⛔ {step.name} needs your approval — {kr.text}")
+        raise _NoWork()
     owner = best_owner_for_step(company, kr, step)
     if owner is None:
         raise _NoWork()   # no one to own this step → don't enqueue an unassignable task
@@ -155,6 +171,9 @@ class AutonomyLoop:
         self._celebrated: set = set()   # KR ids already celebrated at 100% (fire once)
         self._ticks: int = 0            # monotonic tick counter (idea validation windows)
         self._kr_hist: list = []        # bounded (tick, {kr_id: value}) — for baseline trend
+        # a NON-reentrant per-loop lock: two concurrent tick() callers must not both pass
+        # cadence gates / double-dispatch while the company lock is released across phase B.
+        self._tick_lock = threading.Lock()
 
     def _baseline_rate(self, kr_id: str, at_tick: int):
         """The target KR's own per-tick trend BEFORE delivery, from recent history — so
@@ -171,6 +190,14 @@ class AutonomyLoop:
         return rate, True
 
     def tick(self, now: float) -> TickReport:
+        if not self._tick_lock.acquire(blocking=False):
+            return TickReport()   # another tick is already in flight — skip (never double-run)
+        try:
+            return self._tick(now)
+        finally:
+            self._tick_lock.release()
+
+    def _tick(self, now: float) -> TickReport:
         c = self.company
         r = TickReport()
         self._ticks += 1
@@ -337,7 +364,9 @@ class AutonomyLoop:
                 self._last_review = now
                 try:
                     active = _active_stalled(c, 0.05)
-                    if active:
+                    # don't re-open the SAME stalled-KR decision every cadence — one open
+                    # memo per unresolved situation (no linear duplicate accumulation).
+                    if active and not c.memos.has_open(f"KR stalled: {active[0].text}"):
                         kr = active[0]
                         m = c.memos.open(DecisionMemo(
                             title=f"KR stalled: {kr.text}",

@@ -115,9 +115,12 @@ if('serviceWorker' in navigator){try{navigator.serviceWorker.register('/sw.js');
 function loadJSON(k,d){try{return JSON.parse(localStorage.getItem(k))||d;}catch(e){return d;}}
 function saveJSON(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 // ── config (DEV: point ws at a running `po up`) ─────────────────────────────
-const WS_URL = (location.search.match(/[?&]ws=([^&]+)/)||[])[1]
-             ? decodeURIComponent(location.search.match(/[?&]ws=([^&]+)/)[1])
-             : ((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws/office');
+const _DEFAULT_WS = (location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws/office';
+const _WS_OVERRIDE = (location.search.match(/[?&]ws=([^&]+)/)||[])[1];
+// a `?ws=` override points the UI at a NON-server feed — its rows are UNTRUSTED and must
+// never be shown under real/live wording. We honor it (dev convenience) but flag it.
+const WS_UNTRUSTED = !!(_WS_OVERRIDE && decodeURIComponent(_WS_OVERRIDE) !== _DEFAULT_WS);
+const WS_URL = _WS_OVERRIDE ? decodeURIComponent(_WS_OVERRIDE) : _DEFAULT_WS;
 const T=16;                       // tile px
 // ── i18n: Korean for inferred KO users, English otherwise. Browser language is
 // authoritative (so an English speaker in Korea stays English); a Seoul timezone
@@ -144,6 +147,8 @@ const STR={
     assocNote:'association only — not proof the idea caused it',topIdeators:'brings validated ideas',
     tried:'tried',inconclusive:'inconclusive',failed:'failed',dropped:'dropped',learned:'learned (didn\'t beat baseline)',
     creative:'creative',focus:'focus',activityHead:'Activity feed',simulated:'simulated',close:'Close',
+    tip_unknown:'connecting… — confirming what this office is showing.',
+    tip_untrusted:'⚠ untrusted feed (?ws= override) — these rows are NOT verified server telemetry.',
     tip_demo:'a SIMULATED demo company — deterministic activity, no real work or tokens.',
     tip_live:'every avatar is a real employee running your CLIs on real work (spends tokens).',
     tip_dormant:'your company is idle — assign it work, or run `po run --demo` to watch it move.',
@@ -163,6 +168,8 @@ const STR={
     assocNote:'상관관계일 뿐 — 아이디어가 원인이라는 증명 아님',topIdeators:'검증된 아이디어 기여',
     tried:'시도',inconclusive:'미결',failed:'실패',dropped:'폐기',learned:'학습 (베이스라인 못 넘음)',
     creative:'창의',focus:'주력',activityHead:'활동 피드',simulated:'시뮬레이션',close:'닫기',
+    tip_unknown:'연결 중… — 이 오피스가 무엇을 보여주는지 확인하고 있습니다.',
+    tip_untrusted:'⚠ 신뢰할 수 없는 피드(?ws= 오버라이드) — 이 행들은 검증된 서버 텔레메트리가 아닙니다.',
     tip_demo:'시뮬레이션 데모 회사입니다 — 결정론적 활동이며 실제 작업·토큰 소모가 없습니다.',
     tip_live:'모든 아바타는 실제 직원으로, 당신의 CLI로 진짜 작업을 수행합니다(토큰 소모).',
     tip_dormant:'회사가 유휴 상태입니다 — 작업을 배정하거나 `po run --demo`로 움직이는 모습을 보세요.',
@@ -173,9 +180,12 @@ function t(k){return (STR[LANG]&&STR[LANG][k])||STR.en[k]||k;}
 // run mode (watch|demo|live|dormant) drives an HONEST tip + empty-state message so a
 // demo floor never claims to be "real CLI sessions" and an idle company points you at
 // `po run --demo` instead of "run a CLI". Defaults to watch until /api/meta answers.
-let RUN_MODE='watch', EMPTY_KEY='empty';
-function applyRunMode(m){RUN_MODE=m||'watch';
-  const tipKey=RUN_MODE==='demo'?'tip_demo':RUN_MODE==='live'?'tip_live':RUN_MODE==='dormant'?'tip_dormant':'tip';
+// default is UNKNOWN, not 'watch' — an offline/cached view must never assert "real CLI
+// session" until the server confirms the mode. An untrusted `?ws=` feed forces untrusted.
+let RUN_MODE='unknown', EMPTY_KEY='empty';
+function applyRunMode(m){RUN_MODE = WS_UNTRUSTED ? 'untrusted' : (m||'unknown');
+  const tipKey=RUN_MODE==='demo'?'tip_demo':RUN_MODE==='live'?'tip_live':RUN_MODE==='dormant'?'tip_dormant'
+    :RUN_MODE==='watch'?'tip':RUN_MODE==='untrusted'?'tip_untrusted':'tip_unknown';
   const te=document.getElementById('tip');if(te){te.dataset.i18n=tipKey;te.textContent=t(tipKey);}
   EMPTY_KEY=RUN_MODE==='dormant'?'empty_dormant':RUN_MODE==='demo'?'empty_demo':'empty';}
 function applyI18n(){document.documentElement.lang=LANG;
@@ -548,10 +558,12 @@ function drawPrev(){const pc=$('m_prev').getContext('2d');pc.imageSmoothingEnabl
 try{const _last=loadJSON('po:last',null); if(Array.isArray(_last)&&_last.length)ingest(_last,true);}
 catch(e){try{localStorage.removeItem('po:last');}catch(_){}}
 applyI18n();
-// honest run-mode banner: ask the server what it's serving (watch/demo/live/dormant).
-// `?mode=` forces it (screenshots/offline); otherwise /api/meta is the source of truth.
+// honest run-mode banner: /api/meta is the source of truth. `?mode=` may only DOWNGRADE
+// honesty (demo/dormant/unknown for screenshots/offline) — it can NEVER claim a "real"
+// mode (live/watch); those must come from the server, so a link can't relabel demo as live.
+applyRunMode('unknown');   // neutral until confirmed
 (function(){const forced=new URLSearchParams(location.search).get('mode');
-  if(forced){applyRunMode(forced);return;}
+  if(forced && ['demo','dormant','unknown'].includes(forced)){applyRunMode(forced);return;}
   fetch('/api/meta').then(r=>r.json()).then(d=>applyRunMode(d&&d.run_mode)).catch(()=>{});})();
 if(location.search.includes('panel'))$('panel').classList.add('open');
 if(location.search.includes('modal'))setTimeout(()=>{const a=[...AG.values()].find(x=>!x.gone);if(a)openModal(idOf(a.row));},1800);

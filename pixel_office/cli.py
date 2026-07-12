@@ -270,10 +270,18 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
         # TOKENS. Employees stay dormant until assigned work — no auto-run here.
         from .company.cli_invoke import make_subprocess_invoke
         from .company.executor_cli import CLIExecutor
+        from .control.budget import BudgetGuard
         _invoke = make_subprocess_invoke()
+        # control fails CLOSED: bound how many real activations the autonomy loop may run
+        # (a runaway loop can't spend without limit). PO_LIVE_MAX_ACTIONS overrides.
+        try:
+            _max_actions = float(os.environ.get("PO_LIVE_MAX_ACTIONS", "") or 50)
+        except ValueError:
+            _max_actions = 50.0
+        _budget = BudgetGuard(cap_usd=_max_actions)
         company.runtime.executor = CLIExecutor(invoke_fn=_invoke,
                                                memories=company.runtime.memories,
-                                               objective=company.okrs.objective)
+                                               objective=company.okrs.objective, budget=_budget)
         try:                                   # live NEEDS a real CLI — say so loudly, don't fail silent
             _avail = [n for n, c in doctor.run().get("clis", {}).items() if c.get("available")]
         except Exception:
@@ -288,6 +296,8 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
             # lock. Returns "" if no compatible CLI or on error → the loop SKIPS the
             # proposal (never fabricates a trend or attributes a skeleton to the employee).
             if not _idea_cli:
+                return ""
+            if not _budget.charge(1.0):   # idea research spends tokens too — count it (fails closed)
                 return ""
             seed = ""
             if trends:                                   # REAL radar signals (empty if no source)
@@ -309,6 +319,8 @@ def _serve_company(company, *, port: int, host_id: str, live: bool = False,
         banner += " · LIVE (real CLI agents — spends tokens; dormant until assigned)"
         print("live: employees will use your real CLIs and SPEND TOKENS when assigned work.",
               file=sys.stderr)
+        print(f"live: bounded to {int(_max_actions)} activations (PO_LIVE_MAX_ACTIONS); risky steps "
+              "(deploy/publish) require your approval — they never auto-run.", file=sys.stderr)
         if not _avail:
             print("live: WARNING — no AI CLI detected on PATH. Employees will be Blocked when "
                   "assigned. Install Claude/Codex/Grok (`po doctor`), or use `po run --demo`.",

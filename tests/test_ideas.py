@@ -17,7 +17,7 @@ def test_learning_from_a_failed_idea_captures_the_falsified_assumption():
     idea.status = ideas.FAILED_HYPOTHESIS
     lr = learning_from(idea, tick=5)
     assert lr.lens == "acquisition" and lr.target_kr_id == "kr1"
-    assert lr.falsified == "paid ads convert"          # the proposer's own words, not invented
+    assert lr.unconfirmed == "paid ads convert"        # the proposer's own words, not invented
 
 
 def test_parse_live_idea_keeps_real_source_drops_fabricated_provenance():

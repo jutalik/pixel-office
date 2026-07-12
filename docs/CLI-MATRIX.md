@@ -3,8 +3,6 @@
 What Pixel Office knows about each CLI's telemetry, and how verified it is.
 "Verified" = checked against real on-disk data on a live install (2026-07-10).
 
-| CLI | binary | session store | tailer states | hooks | status |
-|---|---|---|---|---|---|
 | CLI | tailer (session store) | tailer states | hooks (install + observe) | status |
 |---|---|---|---|---|
 | **claude** | `~/.claude/projects/*/*.jsonl` (JSONL) ✅ | working, done | ✅ **shipped** (`po hooks install`) → adds waiting/blocked/subagents | ✅ verified |

@@ -33,6 +33,36 @@ def test_planner_for_picks_workflow_planner_when_team_has_workflows():
     assert planner_for(_api_company()) is workflow_planner
 
 
+def test_risky_step_is_never_auto_executed_and_needs_approval():
+    # CONTROL FAILS CLOSED: a workflow driven to its deploy (risky) step must NOT
+    # dispatch a task — it opens a CEO approval and waits.
+    import pytest
+
+    from pixel_office.company.autonomy import _NoWork, workflow_planner
+    c = _api_company()
+    c.start_workflow("kr1", "ship-feature")
+    c.workflows["kr1"].step_index = 5          # the 'deploy' step (risky=True)
+    with pytest.raises(_NoWork):
+        workflow_planner(c, c.okrs.key_results[0])   # risky → no task, raises _NoWork
+    assert c.memos.has_open("approve deploy: ship the payments feature")  # approval opened
+    assert not c.backlog                                                  # nothing auto-dispatched
+
+
+def test_live_budget_fails_closed_when_exhausted():
+    from pixel_office.company.employee import Employee
+    from pixel_office.company.executor_cli import CLIExecutor
+    from pixel_office.company.runtime import Task
+    from pixel_office.control.budget import BudgetGuard
+    calls = []
+    ex = CLIExecutor(invoke_fn=lambda cli, p: (calls.append(1), "DONE: shipped")[1],
+                     budget=BudgetGuard(cap_usd=2.0))          # only 2 activations allowed
+    for _ in range(4):
+        ex(Employee("e", "eng"), Task("x", dri="e"))
+    assert len(calls) == 2                                     # spent the budget, then stopped
+    r = ex(Employee("e", "eng"), Task("x", dri="e"))
+    assert r.ok is False and "budget" in r.summary            # fails closed, honestly
+
+
 def test_one_step_per_tick_gated_on_success():
     c = _api_company()
     c.runtime.executor = _executor(True)
@@ -68,10 +98,24 @@ def test_workflow_completes_after_all_steps():
     from pixel_office.company import workflows
     c = _api_company()
     c.runtime.executor = _executor(True)
+    c.start_workflow("kr1", "architecture-review")   # no risky steps → runs to completion
     loop = _wf_loop(c)
-    for t in range(len(workflows.get("ship-feature").steps) + 2):
+    for t in range(len(workflows.get("architecture-review").steps) + 2):
         loop.tick(t)
     assert c.workflows["kr1"].done
+
+
+def test_ship_feature_stops_at_the_risky_deploy_step_for_approval():
+    # a workflow WITH a risky step (ship-feature → deploy) advances up to it, then waits
+    from pixel_office.company import workflows
+    c = _api_company()
+    c.runtime.executor = _executor(True)
+    loop = _wf_loop(c)
+    for t in range(len(workflows.get("ship-feature").steps) + 3):
+        loop.tick(t)
+    run = c.workflows["kr1"]
+    assert not run.done and run.step_index == 5      # halted at 'deploy' (index 5), not completed
+    assert c.memos.has_open("approve deploy: ship the payments feature")   # awaits approval
 
 
 def test_default_planner_path_unchanged_without_workflows():
